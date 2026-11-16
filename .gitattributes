@@ -1,0 +1,19 @@
+# Normalize line endings: repository stores LF, Windows checkout may use CRLF
+# for text files. Scripts stay LF so they run under bash/WSL unchanged.
+* text=auto eol=lf
+
+*.py   text eol=lf
+*.md   text eol=lf
+*.json text eol=lf
+*.toml text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.sh   text eol=lf
+
+# Never touch binary artifacts
+*.safetensors binary
+*.gguf        binary
+*.bin         binary
+*.png         binary
+*.jpg         binary
+*.pdf         binary

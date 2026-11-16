@@ -1,0 +1,44 @@
+# ---- Moss KedaiEX deliverables (weights are never committed) ----
+*.safetensors
+*.safetensors.index.json
+*.gguf
+*.bin
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.npz
+*.ggml
+
+# merge / prune working dirs
+/models/
+/out/
+/runs/
+/checkpoints/
+*.log
+*.tmp
+*.partial
+
+# probe + budget outputs (regenerate with tools/, never commit)
+probe.json
+budget.json
+*.probe.json
+bench_*.json
+bench_*.csv
+
+# python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+
+# editors / os
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini

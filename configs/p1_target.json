@@ -1,0 +1,34 @@
+{
+  "schema": "moss-kedaiex/arch@1",
+  "id": "p1-target-10b-dense",
+  "role": "phase1-target",
+  "description": "第一阶段交付目标。相对 ref-27b-dense 做三件事：层数 62->26（按重要性选层，不用均匀抽层）、FFN 21504->18432、词表 262144->131072。宽度与注意力结构不动，因此剪枝后的权重可以直接从原模型继承，不需要重新预训练，只需要一次 QAD（量化感知蒸馏）回填。",
+  "arch": {
+    "name": "P1 target 10.15B dense",
+    "hidden": 5376,
+    "layers": 26,
+    "heads": 32,
+    "kv_heads": 16,
+    "head_dim": 128,
+    "ffn": 18432,
+    "vocab": 131072,
+    "tie_embed": true,
+    "global_every": 6,
+    "window": 1024
+  },
+  "palette": {
+    "name": "p1-4.0bpw-kv8-8k",
+    "bpw_dense": 4.0,
+    "bpw_expert": 4.0,
+    "bpw_embed": 6.0,
+    "kv_bits": 8,
+    "ctx": 8192
+  },
+  "acceptance": {
+    "vram_gib_max": 7.0,
+    "vram_gib_target": 6.45,
+    "headroom_gib_min": 0.45,
+    "decode_tok_s_floor": 30,
+    "note": "6.45 GiB 占用是 tools/budget_model.py 的实测标定值，0.55 GiB 留给浏览器/IDE 抢显存。"
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "schema": "moss-kedaiex/arch@1",
+  "id": "ref-27b-dense",
+  "role": "baseline",
+  "description": "27B 量级 Dense 基线：62 层，5:1 局部/全局混合注意力，GQA 32/16，词表 262144。这不是任何厂商的官方参数表，而是项目内部用于预算与对照的参考架构。换基座时只改本文件，文档与工具全部从它派生。",
+  "arch": {
+    "name": "27B dense baseline",
+    "hidden": 5376,
+    "layers": 62,
+    "heads": 32,
+    "kv_heads": 16,
+    "head_dim": 128,
+    "ffn": 21504,
+    "vocab": 262144,
+    "tie_embed": true,
+    "global_every": 6,
+    "window": 1024
+  },
+  "palette": {
+    "name": "bf16-as-shipped",
+    "bpw_dense": 16.0,
+    "bpw_expert": 16.0,
+    "bpw_embed": 16.0,
+    "kv_bits": 16,
+    "ctx": 8192
+  },
+  "notes": [
+    "16 bpw 是未量化的名义值，用于展示这个基座在 8 GiB 卡上完全放不下。",
+    "实际对照实验用 4.5 bpw（Q4 级），见 docs/02-budget.md 的前沿扫描。"
+  ]
+}
