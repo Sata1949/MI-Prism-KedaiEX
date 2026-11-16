@@ -75,9 +75,22 @@ notes/         architecture decision records
 tools/         probe_hardware.py  measure the machine
                budget_model.py    params/VRAM/speed model, zero deps
                eval_gate.py       CI gate, non-zero exit when a config misses
+               audit_docs.py      re-derive all 223 numbers quoted in the docs
                selfcheck.py       everything that must stay green
-tests/         36 unit tests incl. monotonicity and gate boundary cases
+tests/         44 unit tests incl. monotonicity, CLI contracts, gate edges
 ```
+
+## Two stages, opposite optimization axes
+
+Bandwidth sensitivity turned out to be inverted between phases:
+
+| config | VRAM bw 280→400 | host bw 17→68 |
+|---|---|---|
+| P1 (fully resident) | 51.1 → 73.0 (+43%) | 51.1 → 51.1 (0%) |
+| P3 (experts in RAM) | 9.4 → 9.6 (+2%) | 9.4 → 30.0 (+219%) |
+
+P1's effort belongs entirely on the GPU side; P3's entirely on the CPU side and
+on prefetch. Nothing carries over. See `notes/decisions/0004`.
 
 ## Verify it yourself
 
@@ -86,6 +99,7 @@ python tools/probe_hardware.py          # measure this machine
 python tools/budget_model.py            # budget table
 python tools/budget_model.py --ablation # per-lever marginal cost
 python tools/budget_model.py --explain  # per-token time/byte breakdown
+python tools/audit_docs.py               # every doc number must reproduce
 python tools/eval_gate.py configs/*.json
 python -I -m unittest discover -s tests -v
 python -I tools/selfcheck.py            # all of the above

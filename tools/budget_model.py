@@ -180,6 +180,19 @@ class Palette:
     vram_gib: float = USABLE_VRAM_GIB
     ram_gib: float = USABLE_RAM_GIB
     spill_budget_gib: float = 2.0   # accepted PCIe traffic per token
+    # Bandwidth overrides. None means "use the measured module constant".
+    # Exposed here so a different machine (or a hypothetical upgrade such as a
+    # second DIMM) can be modelled without editing source.
+    bw_vram_gbps: float | None = None
+    bw_host_gbps: float | None = None
+    bw_pcie_gbps: float | None = None
+
+    def bandwidth(self) -> tuple[float, float, float]:
+        return (
+            self.bw_vram_gbps if self.bw_vram_gbps is not None else BW_VRAM_GBPS,
+            self.bw_host_gbps if self.bw_host_gbps is not None else BW_HOST_GBPS,
+            self.bw_pcie_gbps if self.bw_pcie_gbps is not None else BW_PCIE_GBPS,
+        )
 
 
 def estimate(arch: Arch, pal: Palette) -> dict:
@@ -193,6 +206,8 @@ def estimate(arch: Arch, pal: Palette) -> dict:
     w_expert = p_expert * pal.bpw_expert / 8 / GIB
     w_embed = p_embed * pal.bpw_embed / 8 / GIB
     w_total = w_dense + w_expert + w_embed
+
+    bw_vram, bw_host, bw_pcie = pal.bandwidth()
 
     kv_total = arch.kv_gib(pal.ctx, pal.batch, pal.kv_bits)
     kv_decode = arch.decode_kv_gib(pal.ctx, pal.batch, pal.kv_bits)
@@ -213,9 +228,9 @@ def estimate(arch: Arch, pal: Palette) -> dict:
     else:
         expert_bytes = 0.0
 
-    t_vram = dense_bytes / (BW_VRAM_GBPS * 1e9)
-    t_spill = spill * GIB / (BW_PCIE_GBPS * 1e9)
-    t_host = expert_bytes / (BW_HOST_GBPS * 1e9) if arch.experts else 0.0
+    t_vram = dense_bytes / (bw_vram * 1e9)
+    t_spill = spill * GIB / (bw_pcie * 1e9)
+    t_host = expert_bytes / (bw_host * 1e9) if arch.experts else 0.0
     t_total = t_vram + t_spill + t_host
     tok_s = 1.0 / max(t_total, 1e-9)
 
@@ -250,6 +265,9 @@ def estimate(arch: Arch, pal: Palette) -> dict:
         "host_fit": host_ok,
         "placement": fit,
         "decode_tok_s_ceiling": round(tok_s, 1),
+        "bandwidth_gbps": {
+            "vram": bw_vram, "host": bw_host, "pcie": bw_pcie,
+        },
         # Time decomposition, ms per token. Sums to 1000/tok_s.
         "ms_per_token": {
             "vram_resident": round(t_vram * 1e3, 1),
@@ -372,14 +390,35 @@ ABLATIONS = [
 ]
 
 
+def coerce_field(pal: Palette | object, key: str, raw: str) -> object:
+    """Parse a --set value to the type the dataclass field wants.
+
+    Fields whose current value is None (the bandwidth overrides) are floats by
+    declaration, so fall back to the annotation rather than the value.
+    """
+    if not hasattr(pal, key):
+        raise SystemExit(f"unknown palette field: {key}")
+    cur = getattr(pal, key)
+    if isinstance(cur, bool):
+        raise SystemExit(f"field {key} is boolean; not settable from CLI")
+    if isinstance(cur, int):
+        return int(raw)
+    if isinstance(cur, float):
+        return float(raw)
+    # None-valued override field: annotation decides
+    ann = type(pal).__annotations__.get(key)
+    if ann in (float, "float | None", "float"):
+        return float(raw)
+    if ann in (int, "int | None", "int"):
+        return int(raw)
+    return float(raw)
+
+
 def _apply(pal: Palette, arch_kwargs: dict, overrides: list[str]) -> tuple:
     arch_kwargs = dict(arch_kwargs)
     for item in overrides:
         k, _, v = item.partition("=")
-        if not hasattr(pal, k):
-            raise SystemExit(f"unknown palette field: {k}")
-        cur = getattr(pal, k)
-        setattr(pal, k, int(v) if isinstance(cur, int) else float(v))
+        setattr(pal, k, coerce_field(pal, k, v))
     return pal, arch_kwargs
 
 
@@ -402,6 +441,8 @@ def main(argv: list[str]) -> int:
     if args.explain:
         rows = []
         for key, factory in ARCHS.items():
+            if args.arch not in ("all", key):
+                continue
             pal = Palette(**asdict(PALETTES[key]))
             pal, _ = _apply(pal, {}, args.set)
             r = estimate(factory(), pal)

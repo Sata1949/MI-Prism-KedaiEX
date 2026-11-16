@@ -134,19 +134,22 @@ Moss-KedaiEX/
 │   ├── ref_27b.json           27B 基线架构（预算与对照的锚点）
 │   └── p1_target.json         第一阶段交付目标 + 验收标准
 ├── docs/
+│   ├── 00-introduction-en.md  英文摘要
 │   ├── 01-introduction.md     完整介绍稿（长文，含全部推导）
 │   ├── 02-budget-frontier.md  显存/带宽前沿扫描，全部实测数字
 │   ├── 03-roadmap.md          三阶段详细计划与退出条件
 │   ├── 04-eval-protocol.md    评测协议（怎么算"更强"）
 │   ├── 05-risks.md            风险表与已知失败模式
 │   └── BENCHMARKS.md          本机硬件实测记录
-├── notes/decisions/           架构决策记录（ADR）
+├── notes/decisions/           架构决策记录（4 篇 ADR）
 ├── tools/
 │   ├── probe_hardware.py      实测本机 VRAM/RAM/带宽/GEMV
 │   ├── budget_model.py        参数量/显存/解码速度模型
-│   └── eval_gate.py           部署门禁，CI 用，不达标非零退出
+│   ├── eval_gate.py           部署门禁，CI 用，不达标非零退出
+│   ├── audit_docs.py          审计文档里 223 个数字能否复现
+│   └── selfcheck.py           一键跑完上面所有检查
 └── tests/
-    └── test_budget_model.py   33 个测试，含单调性与门禁边界
+    └── test_budget_model.py   44 个测试，含单调性与门禁边界
 ```
 
 ### 工具怎么用
@@ -161,14 +164,38 @@ python tools/budget_model.py
 # 3. 看单个杠杆的边际收益
 python tools/budget_model.py --ablation
 
-# 4. 检查某个配置能不能部署
+# 4. 看每 token 的时间与字节分解（"为什么是这个速度"）
+python tools/budget_model.py --explain
+
+# 5. 检查某个配置能不能部署
 python tools/eval_gate.py configs/p1_target.json
 
-# 5. 跑测试
+# 6. 模拟另一台机器 / 假设升级（如加一条内存条）
+python tools/budget_model.py --arch p3 --set bw_host_gbps=34
+
+# 7. 审计文档里的数字是否都能复现（改动模型后必跑）
+python -I tools/audit_docs.py
+
+# 8. 一键跑完全部检查
+python -I tools/selfcheck.py
+
+# 9. 只跑测试
 python -I -m unittest discover -s tests -v
 ```
 
 `budget_model.py` 零依赖（只用标准库）。`probe_hardware.py` 需要 numpy，没有 numpy 时会明确报 SKIPPED，不会编造数字。
+
+### 两个阶段优化方向相反（实测）
+
+带宽敏感性分析得出一个反直觉结论：
+
+| 配置 | 显存带宽 280→400 | 内存带宽 17→68 |
+|---|---|---|
+| P1（全常驻） | 51.1 → **73.0**（+43%） | 51.1 → 51.1（**0%**） |
+| P3（专家在内存） | 9.4 → 9.6（+2%） | 9.4 → **30.0**（+219%） |
+
+**P1 的优化该全压在 GPU 侧，P3 的全压在 CPU 侧与预取。两者不可复用。**
+详见 `notes/decisions/0004-opposite-optimization-axes.md`。
 
 ### 实测输出示例
 
@@ -217,7 +244,7 @@ $ python tools/eval_gate.py configs/p1_target.json
 已完成：
 
 - 本机硬件基线实测，含笔记本特有的坑（PCIe x8、内存降频、核显占用）
-- 预算模型，33 个测试覆盖参数量、KV、单调性、门禁边界
+- 预算模型，44 个测试覆盖参数量、KV、单调性、门禁边界、CLI 契约
 - 部署门禁，`configs/` 下两个配置一个 PASS 一个 INFO
 - 前沿扫描：确认"只砍层"不可行，"三杠杆叠加"可行
 

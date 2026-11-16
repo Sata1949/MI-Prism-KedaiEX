@@ -251,6 +251,65 @@ class TestCli(unittest.TestCase):
         self.assertNotEqual(out.returncode, 0)
         self.assertIn("unknown palette field", out.stderr)
 
+    def test_bandwidth_override_changes_speed_not_vram(self):
+        base = json.loads(self._run("--arch", "p3", "--json").stdout)[0]
+        fast = json.loads(self._run("--arch", "p3",
+                                    "--set", "bw_host_gbps=34",
+                                    "--json").stdout)[0]
+        self.assertGreater(fast["decode_tok_s_ceiling"],
+                           base["decode_tok_s_ceiling"])
+        self.assertAlmostEqual(fast["vram_gib"], base["vram_gib"], places=6)
+        self.assertEqual(fast["bandwidth_gbps"]["host"], 34.0)
+        self.assertEqual(base["bandwidth_gbps"]["host"], 17.0)
+
+    def test_pcie_override_only_affects_spilled_configs(self):
+        spill = json.loads(self._run("--arch", "ref",
+                                     "--set", "bw_pcie_gbps=22",
+                                     "--json").stdout)[0]
+        plain = json.loads(self._run("--arch", "ref", "--json").stdout)[0]
+        self.assertGreater(spill["decode_tok_s_ceiling"],
+                           plain["decode_tok_s_ceiling"])
+        # A resident config must be unaffected by the PCIe constant.
+        a = json.loads(self._run("--arch", "p1",
+                                 "--set", "bw_pcie_gbps=22",
+                                 "--json").stdout)[0]
+        b = json.loads(self._run("--arch", "p1", "--json").stdout)[0]
+        self.assertAlmostEqual(a["decode_tok_s_ceiling"],
+                               b["decode_tok_s_ceiling"], places=6)
+
+
+class TestCoerceField(unittest.TestCase):
+    def test_int_field_stays_int(self):
+        from budget_model import coerce_field
+        self.assertIsInstance(coerce_field(Palette(), "ctx", "4096"), int)
+
+    def test_float_field(self):
+        from budget_model import coerce_field
+        v = coerce_field(Palette(), "bpw_dense", "3.5")
+        self.assertIsInstance(v, float)
+        self.assertEqual(v, 3.5)
+
+    def test_none_valued_override_field_parses_as_float(self):
+        from budget_model import coerce_field
+        v = coerce_field(Palette(), "bw_host_gbps", "34")
+        self.assertIsInstance(v, float)
+        self.assertEqual(v, 34.0)
+
+    def test_unknown_field_raises(self):
+        from budget_model import coerce_field
+        with self.assertRaises(SystemExit):
+            coerce_field(Palette(), "nope", "1")
+
+
+class TestCliExtra(unittest.TestCase):
+    """CLI modes that are not about --set plumbing."""
+
+    def _run(self, *args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [sys.executable, "-I", str(ROOT / "tools" / "budget_model.py"),
+             *args],
+            capture_output=True, text=True, timeout=120)
+
     def test_human_table_runs(self):
         out = self._run()
         self.assertEqual(out.returncode, 0, out.stderr)
@@ -283,6 +342,18 @@ class TestCli(unittest.TestCase):
         self.assertEqual(len(rows), 17)
         self.assertIn("lever", rows[0])
         self.assertIn("headroom_gib", rows[0])
+
+    def test_explain_respects_arch_filter(self):
+        out = self._run("--explain", "--arch", "p3", "--json")
+        rows = json.loads(out.stdout)
+        self.assertEqual(len(rows), 1)
+        self.assertIn("P3", rows[0]["arch"])
+        self.assertEqual(rows[0]["lever"], "p3")
+
+    def test_explain_arch_text_output_is_single_block(self):
+        out = self._run("--explain", "--arch", "p1")
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertEqual(out.stdout.count("=="), 2)  # one "== name ==" header
 
 
 if __name__ == "__main__":

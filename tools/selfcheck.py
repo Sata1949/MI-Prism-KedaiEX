@@ -57,6 +57,7 @@ def main(argv: list[str]) -> int:
     checks = [
         ("unit tests",
          [PY, "-I", "-m", "unittest", "discover", "-s", "tests"]),
+        ("doc number audit", [PY, "-I", "tools/audit_docs.py"]),
         ("budget table", [PY, "-I", "tools/budget_model.py"]),
         ("ablation table", [PY, "-I", "tools/budget_model.py", "--ablation"]),
         ("time breakdown", [PY, "-I", "tools/budget_model.py", "--explain"]),

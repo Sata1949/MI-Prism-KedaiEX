@@ -30,7 +30,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from budget_model import Arch, Palette, estimate  # noqa: E402
+from budget_model import Arch, Palette, estimate, coerce_field  # noqa: E402
 
 DEFAULT_GATE = {
     "vram_gib_max": 7.0,
@@ -127,10 +127,7 @@ def main(argv: list[str]) -> int:
             continue
         for item in args.set:
             k, _, v = item.partition("=")
-            if not hasattr(pal, k):
-                raise SystemExit(f"unknown palette field: {k}")
-            cur = getattr(pal, k)
-            setattr(pal, k, int(v) if isinstance(cur, int) else float(v))
+            setattr(pal, k, coerce_field(pal, k, v))
         status, msgs = check(arch, pal, gate, role)
         r = estimate(arch, pal)
         results.append({
