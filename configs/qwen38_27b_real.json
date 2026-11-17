@@ -1,0 +1,75 @@
+{
+  "schema": "moss-kedaiex/arch@2",
+  "id": "qwen38-27b-real",
+  "role": "baseline",
+  "description": "真实基座架构，从本机 IQ3_S GGUF 头部实测提取，替换 v1 中被证明错误的假设值。v1 假设的是 62 层纯注意力 Transformer；实际是 65 层混合架构：17 层全注意力 + 48 层线性注意力（gated DeltaNet 风格 SSM），每层都有 FFN。",
+  "provenance": {
+    "source_file": "Qwen3.8-27B-UD-IQ3_S.gguf",
+    "source_repo": "unsloth/Qwen3.8-27B-GGUF",
+    "base_model": "Qwen/Qwen3.8-27B",
+    "extracted_by": "GGUF v3 header parse (kv pairs + tensor table) via tools/gguf_peek.py",
+    "extracted_at": "2026-11-17"
+  },
+  "license": {
+    "spdx": "Apache-2.0",
+    "declared_in": "GGUF general.license",
+    "obligations": ["retain notices", "state modifications", "no trademark use"]
+  },
+  "arch": {
+    "name": "Qwen3.8-27B (real)",
+    "architecture": "qwen35",
+    "hidden": 5120,
+    "layers": 65,
+    "full_attention_layers": 17,
+    "linear_attention_layers": 48,
+    "heads": 24,
+    "kv_heads": 4,
+    "head_dim": 256,
+    "key_length": 256,
+    "value_length": 256,
+    "ffn": 17408,
+    "vocab": 248320,
+    "tie_embed": false,
+    "full_attention_interval": 4,
+    "context_length": 262144,
+    "rope_dim": 64,
+    "rope_freq_base": 10000000.0,
+    "nextn_predict_layers": 1,
+    "ssm": {
+      "inner_size": 6144,
+      "state_size": 128,
+      "group_count": 16,
+      "conv_kernel": 4,
+      "time_step_rank": 48
+    }
+  },
+  "measured_elements": {
+    "token_embd": 1271400000,
+    "output": 1271400000,
+    "ffn_per_layer": 267400000,
+    "attn_qkv_fused_per_layer": 83900000,
+    "attn_qkvo_split_per_layer": 104900000,
+    "ssm_per_layer": 32000000,
+    "norm_per_layer": 70000,
+    "nextn_block": 52400000,
+    "tensor_count": 866
+  },
+  "params_b": 27.25,
+  "params_b_total_in_file": 27.32,
+  "palette": {
+    "name": "as-shipped-IQ3_S",
+    "bpw_dense": 3.44,
+    "bpw_expert": 3.44,
+    "bpw_embed": 3.44,
+    "kv_bits": 16,
+    "ctx": 8192
+  },
+  "notes": [
+    "v1 的 ref_27b.json 用了 hidden 5376 / 62 层 / 32 头 / FFN 21504 / vocab 262144 / tie_embed true，全部与实际不符。误判不影响『27B 放不进 7 GiB』这个结论，但让所有具体方案数字失效。见 docs/08-architecture-correction.md。",
+    "线性注意力的循环状态是常数（48 层 x 6144 x 128 x 2B = 72 MiB），不随上下文增长。只有 17 个全注意力层产生 KV。",
+    "MQA 4 个 KV 头 + head_dim 256 => 每 token 每全注意力层 2 KiB @KV16。",
+    "词表未共享（tie_embed=false），嵌入+输出 = 2.54B 参数 = 1.78 GiB @6bpw，是显存预算里最大的一块固定开销。",
+    "本机实测 IQ3_S 文件 11.21 GiB，任何 27B 在此质量下都装不进 7.0 GiB。",
+    "params_b 27.25 是不含 nextn 块的手算和；params_b_total_in_file 27.32 是 GGUF 张量表直接求和（含 nextn 的 52.4M）。"
+  ]
+}

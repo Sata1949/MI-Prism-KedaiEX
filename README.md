@@ -7,7 +7,17 @@ Moss KedaiEX 是一个激进的模型改造项目。它不接受"小机器就该
 - 项目状态：**第一阶段进行中**
 - 参考硬件：RTX 3070 Ti Laptop（8 GB）/ Ryzen 7 6800H / 16 GB DDR5
 - 支持范围：**6 GB 及以上显存**（4 GB 是硬墙，见 `docs/06-hardware-tiers.md`）
-- 许可：MIT（权重另行发布，不随仓库分发）
+- 许可：代码 MIT；衍生权重 Apache-2.0（基座 Qwen3.8-27B，见 `docs/09-licensing.md`）
+
+> **⚠ 架构勘误（2026-11-17）**
+> 本仓库 v1 的参考架构（62 层 / hidden 5376 / GQA 32:16 / FFN 21504 / 词表共享）
+> **与实际基座完全不符**。真实模型是 **65 层混合架构：17 层全注意力 + 48 层线性注意力，
+> hidden 5120，MQA 24:4，head_dim 256，FFN 17408，词表 248320 未共享**，
+> 由本机 GGUF 头部实测提取（`python tools/gguf_peek.py <file> --arch`）。
+>
+> 主结论"27B 装不进 7 GiB"更成立（实测文件 11.21 GiB），
+> 但下文所有**具体方案数字（层数、显存、tok/s）均基于错误架构，待重算**。
+> 详见 [docs/08-architecture-correction.md](docs/08-architecture-correction.md)。
 
 ---
 
@@ -147,10 +157,13 @@ P1 target       6.45 GiB  ██████▋                headroom +0.55
 ```
 Moss-KedaiEX/
 ├── README.md                  你在这里
+├── LICENSE-APACHE-2.0         Apache-2.0 全文（衍生权重用）
+├── NOTICE                     上游署名与修改声明（Apache §4b/§4c）
 ├── configs/
-│   ├── ref_27b.json           27B 基线架构（预算与对照的锚点）
-│   ├── p1_target.json         第一阶段主目标（10.15B / 4.0bpw / 8k）
-│   └── p1_low.json            第一阶段低档目标（8.43B / 3.5bpw / 16k）
+│   ├── qwen38_27b_real.json   真实基座架构（GGUF 头部实测，**以此为准**）
+│   ├── ref_27b.json           ⚠ v1 假设架构，已作废，仅留作对照
+│   ├── p1_target.json         第一阶段主目标（10.15B / 4.0bpw / 8k）⚠ 待重算
+│   └── p1_low.json            第一阶段低档目标（8.43B / 3.5bpw / 16k）⚠ 待重算
 ├── docs/
 │   ├── 00-introduction-en.md  英文摘要
 │   ├── 01-introduction.md     完整介绍稿（长文，含全部推导）
@@ -160,6 +173,8 @@ Moss-KedaiEX/
 │   ├── 05-risks.md            风险表与已知失败模式
 │   ├── 06-hardware-tiers.md   从 4090 到 1650：每档能跑多少
 │   ├── 07-capability-gains.md 性能提升从哪来（六机制，标注已验证/假设）
+│   ├── 08-architecture-correction.md  架构勘误：v1 参考架构全部作废
+│   ├── 09-licensing.md        许可证清单与 Apache-2.0 义务
 │   └── BENCHMARKS.md          本机硬件实测记录
 ├── notes/decisions/           架构决策记录（4 篇 ADR）
 ├── tools/
@@ -169,11 +184,13 @@ Moss-KedaiEX/
 │   ├── audit_docs.py          审计文档数字能否由模型复现（261 项）
 │   ├── audit_bindings.py      把 48 条文档原文行绑到模型输出
 │   ├── ffn_spectrum.py        测 FFN 奇异值谱，判定 FFN 收窄是否成立
+│   ├── gguf_peek.py           读 GGUF 头部：架构超参、许可证、张量组成
 │   └── selfcheck.py           一键跑完上面所有检查
 └── tests/
     ├── test_budget_model.py   预算模型与门禁
     ├── test_ffn_spectrum.py   奇异值谱测量
-    └── test_audit_bindings.py 文档漂移必须被抓到
+    ├── test_audit_bindings.py 文档漂移必须被抓到
+    └── test_licensing.py      许可证完整性 + GGUF 头部事实
 ```
 
 ### 工具怎么用
@@ -273,7 +290,7 @@ $ python tools/eval_gate.py configs/p1_target.json
 已完成：
 
 - 本机硬件基线实测，含笔记本特有的坑（PCIe x8、内存降频、核显占用）
-- 预算模型、奇异值谱与文档审计，77 个测试覆盖参数量、KV、单调性、门禁边界、CLI 契约、布局识别、文档漂移检测
+- 预算模型、奇异值谱、文档审计、许可证校验，109 个测试覆盖参数量、KV、单调性、门禁边界、CLI 契约、布局识别、文档漂移检测、GGUF 头部事实
 - 部署门禁，`configs/` 下两个配置一个 PASS 一个 INFO
 - 前沿扫描：确认"只砍层"不可行，"三杠杆叠加"可行
 

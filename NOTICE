@@ -1,0 +1,77 @@
+Moss KedaiEX
+Copyright (c) 2026 Moss KedaiEX contributors
+
+This product includes software and model weights derived from the following
+projects. Their licenses and attributions are reproduced below as required by
+Apache License 2.0, Section 4.
+
+--------------------------------------------------------------------------------
+1. Base model
+--------------------------------------------------------------------------------
+
+Qwen3.8-27B
+  Copyright (c) Qwen Team / Alibaba Group
+  License: Apache License 2.0
+  Source:  https://huggingface.co/Qwen/Qwen3.8-27B
+
+  Modifications by Moss KedaiEX (to be applied when derivative weights are
+  published):
+    - depth pruning: 65 layers -> N layers (N: see configs/p1_target.json)
+    - FFN narrowing: 17408 -> N channels
+    - vocabulary reduction: 248320 -> N tokens, low-frequency tokens merged
+    - quantization: 4.0 bits per weight (main body), 6.0 bpw (embeddings)
+    - quantization-aware distillation (QAD) refill
+
+  NOTE: layered linear-attention (SSM) blocks are structurally different from
+  full-attention blocks; any pruning description must say which kind it pruned.
+
+--------------------------------------------------------------------------------
+2. Quantization
+--------------------------------------------------------------------------------
+
+Qwen3.8-27B-GGUF (UD-IQ3_S, UD-IQ4_XS)
+  Quantized by: Unsloth
+  License: Apache License 2.0 (inherited; quantization is a derivative work)
+  Source:  https://huggingface.co/unsloth/Qwen3.8-27B-GGUF
+
+--------------------------------------------------------------------------------
+3. Reference image stack (not redistributed by this repository)
+--------------------------------------------------------------------------------
+
+MOSS-Image-Base / MOSS-Image-SFT
+  Copyright (c) OpenMOSS Team
+  License: Apache License 2.0
+  Source:  https://huggingface.co/OpenMOSS-Team/MOSS-Image-Base
+           https://huggingface.co/OpenMOSS-Team/MOSS-Image-SFT
+
+MOSS-Image ComfyUI build
+  License: Apache License 2.0
+  Source:  https://huggingface.co/Comfy-Org/MOSS-Image
+
+Qwen3.5-9B (text encoder / distillation teacher)
+  Copyright (c) Qwen Team / Alibaba Group
+  License: Apache License 2.0
+  Source:  https://huggingface.co/Qwen/Qwen3.5-9B
+
+--------------------------------------------------------------------------------
+4. Third-party components used at development time
+--------------------------------------------------------------------------------
+
+numpy            BSD-3-Clause
+Python           PSF-2.0
+git              GPL-2.0 (used as a tool, not linked)
+
+No GPL or AGPL code is linked into this project's distributed artifacts.
+
+--------------------------------------------------------------------------------
+5. Trademark notice
+--------------------------------------------------------------------------------
+
+"Qwen" is a trademark of Alibaba Group. "MOSS" is a trademark of its respective
+owner. This project is not endorsed by, affiliated with, or sponsored by either.
+Names are used only to identify the upstream models this work derives from, as
+required for attribution.
+
+Full license texts:
+  - MIT:            see LICENSE
+  - Apache 2.0:     see LICENSE-APACHE-2.0
