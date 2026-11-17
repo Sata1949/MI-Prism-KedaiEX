@@ -383,13 +383,39 @@ def main(argv: list[str]) -> int:
     au.eq("p1-low table", "p1 vram", p1row["vram_gib"], 6.45)
     au.eq("p1-low table", "low vram", lowrow["vram_gib"], 5.20)
     au.eq("p1-low table", "low headroom", 7.0 - lowrow["vram_gib"], 1.80)
-    au.eq("p1-low table", "low tps", lowrow["decode_tok_s_ceiling"], 67.7, 0.06)
-    au.eq("p1-low table", "p1 tps", p1row["decode_tok_s_ceiling"], 51.1, 0.06)
+    # docs/01 §4.5 quotes its row at 278 GB/s (the reference box), which is what
+    # the README head table uses too. Keep both on the same basis so a reader
+    # comparing the two tables does not see a phantom 0.4 tok/s difference.
+    p1_278 = estimate(p1(), Palette(**{**PALETTES["p1"].__dict__,
+                                       "bw_vram_gbps": 278.0}))
+    low_278 = estimate(p1_low(), Palette(**{**PALETTES["p1l"].__dict__,
+                                            "bw_vram_gbps": 278.0}))
+    au.eq("p1-low table", "p1 tps @278", p1_278["decode_tok_s_ceiling"], 50.7,
+          0.06)
+    au.eq("p1-low table", "low tps @278", low_278["decode_tok_s_ceiling"], 67.2,
+          0.06)
     # 16k context on P1-low still fits
     low16 = estimate(p1_low(), Palette(**{**PALETTES["p1l"].__dict__,
                                           "ctx": 16384}))
     au.eq("p1-low table", "low 16k vram", low16["vram_gib"], 6.02)
     au.eq("p1-low table", "low 16k headroom", 7.0 - low16["vram_gib"], 0.98)
+
+    # ------------------------------------------------------------------
+    # README.md head table : P1 vs P1-low across the three tiers it mentions
+    # ------------------------------------------------------------------
+    for gpu, bw, want_p1, want_low in (
+            ("3070Ti (reference)", 278.0, 50.7, 67.2),
+            ("4060", 169.0, 30.8, 40.9),
+            ("3060", 208.0, 38.0, 50.3),
+            ("3050", 139.0, 25.4, 33.6)):
+        gp = estimate(p1(), Palette(**{**PALETTES["p1"].__dict__,
+                                       "bw_vram_gbps": bw}))
+        gl = estimate(p1_low(), Palette(**{**PALETTES["p1l"].__dict__,
+                                           "bw_vram_gbps": bw}))
+        au.eq(f"README head {gpu} p1", "tps", gp["decode_tok_s_ceiling"],
+              want_p1, tol=0.06)
+        au.eq(f"README head {gpu} p1-low", "tps", gl["decode_tok_s_ceiling"],
+              want_low, tol=0.06)
 
     # ------------------------------------------------------------------
     # CLI contract: --explain must honour --arch

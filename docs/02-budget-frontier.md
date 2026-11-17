@@ -312,6 +312,7 @@ P3 的速度结论**高度敏感**于 `BW_HOST_GBPS`。这也是为什么 §4.2 
 | 门禁 | `python tools/eval_gate.py configs/*.json` |
 | 硬件基线 | `python tools/probe_hardware.py` |
 | 审计文档数字 | `python -I tools/audit_docs.py` |
+| 审计文档原文行 | `python -I tools/audit_bindings.py` |
 | 测试 | `python -I -m unittest discover -s tests -v` |
 
 **所有文档里的数字都必须是上表某条命令的输出。** 做不到的，标"估算"并写依据。

@@ -1,11 +1,12 @@
 # Moss KedaiEX
 
-**在 8 GB 显存 + 16 GB 内存的笔记本上，把一个 27B 级别的模型塞进去，并且让它比原版更强。**
+**在 6-8 GB 显存 + 16 GB 内存的笔记本上，把一个 27B 级别的模型塞进去，并且让它比"同硬件能跑的东西"更强。**
 
 Moss KedaiEX 是一个激进的模型改造项目。它不接受"小机器就该用小模型"这个前提，也不接受"量化到 2bit 就算胜利"这种自我安慰。它要的是同一件事的两个面：**参数量不掉，或者掉得比常识预期的少；而在同样的硬件上，实际能力上升。**
 
 - 项目状态：**第一阶段进行中**
 - 参考硬件：RTX 3070 Ti Laptop（8 GB）/ Ryzen 7 6800H / 16 GB DDR5
+- 支持范围：**6 GB 及以上显存**（4 GB 是硬墙，见 `docs/06-hardware-tiers.md`）
 - 许可：MIT（权重另行发布，不随仓库分发）
 
 ---
@@ -21,6 +22,22 @@ P1 target       6.45 GiB  ██████▋                headroom +0.55
 ```
 
 以上数字由 `tools/budget_model.py` 生成，非手算。
+
+### 两条交付线，因为"中低端"不止一档
+
+参考机是 3070 Ti Laptop（448 GB/s 峰值），在 8 GB 卡里偏高。同样的 P1 在 RTX 3050 Laptop 上只有 **25.4 tok/s**，低于 30 门槛。所以有两个目标：
+
+| | P1（主目标） | P1-low（低档目标） |
+|---|---:|---:|
+| 参数 / 权重 | 10.15B / 4.89 GiB | 8.43B / 3.64 GiB |
+| 显存 / 余量 | 6.45 GiB / +0.55 | 5.20 GiB / **+1.80** |
+| 上下文 | 8k | **16k** |
+| 参考机（3070 Ti，278 GB/s） | 50.7 tok/s | 67.2 tok/s |
+| RTX 4060 8G（169 GB/s） | 30.8 ✓ | 40.9 ✓ |
+| RTX 3060 6G（208 GB/s） | 38.0 ✓ | 50.3 ✓ |
+| **RTX 3050 8G（139 GB/s）** | **25.4 ✗** | **33.6 ✓** |
+
+**P1-low 是唯一覆盖 6-8 GB 全档位的配置。** 完整档位表（4090 → 1650，含 4 GB 硬墙分析）见 `docs/06-hardware-tiers.md`。
 
 ---
 
@@ -149,12 +166,14 @@ Moss-KedaiEX/
 │   ├── probe_hardware.py      实测本机 VRAM/RAM/带宽/GEMV
 │   ├── budget_model.py        参数量/显存/解码速度模型
 │   ├── eval_gate.py           部署门禁，CI 用，不达标非零退出
-│   ├── audit_docs.py          审计文档里 261 个数字能否复现
+│   ├── audit_docs.py          审计文档数字能否由模型复现（261 项）
+│   ├── audit_bindings.py      把 48 条文档原文行绑到模型输出
 │   ├── ffn_spectrum.py        测 FFN 奇异值谱，判定 FFN 收窄是否成立
 │   └── selfcheck.py           一键跑完上面所有检查
 └── tests/
-    ├── test_budget_model.py   预算模型与门禁的测试
-    └── test_ffn_spectrum.py   奇异值谱测量的测试
+    ├── test_budget_model.py   预算模型与门禁
+    ├── test_ffn_spectrum.py   奇异值谱测量
+    └── test_audit_bindings.py 文档漂移必须被抓到
 ```
 
 ### 工具怎么用
@@ -178,8 +197,9 @@ python tools/eval_gate.py configs/p1_target.json
 # 6. 模拟另一台机器 / 假设升级（如加一条内存条）
 python tools/budget_model.py --arch p3 --set bw_host_gbps=34
 
-# 7. 审计文档里的数字是否都能复现（改动模型后必跑）
-python -I tools/audit_docs.py
+# 7. 审计文档（改动模型或改文档后必跑）
+python -I tools/audit_docs.py       # 261 个数字是否由模型复现
+python -I tools/audit_bindings.py   # 48 条文档原文行是否与模型输出一致
 
 # 8. 一键跑完全部检查
 python -I tools/selfcheck.py
@@ -253,7 +273,7 @@ $ python tools/eval_gate.py configs/p1_target.json
 已完成：
 
 - 本机硬件基线实测，含笔记本特有的坑（PCIe x8、内存降频、核显占用）
-- 预算模型与奇异值谱工具，64 个测试覆盖参数量、KV、单调性、门禁边界、CLI 契约、布局识别
+- 预算模型、奇异值谱与文档审计，77 个测试覆盖参数量、KV、单调性、门禁边界、CLI 契约、布局识别、文档漂移检测
 - 部署门禁，`configs/` 下两个配置一个 PASS 一个 INFO
 - 前沿扫描：确认"只砍层"不可行，"三杠杆叠加"可行
 

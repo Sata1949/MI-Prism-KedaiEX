@@ -58,6 +58,7 @@ def main(argv: list[str]) -> int:
         ("unit tests",
          [PY, "-I", "-m", "unittest", "discover", "-s", "tests"]),
         ("doc number audit", [PY, "-I", "tools/audit_docs.py"]),
+        ("doc line bindings", [PY, "-I", "tools/audit_bindings.py"]),
         ("spectrum self-test", [PY, "-I", "tools/ffn_spectrum.py",
                                 "--synthetic"]),
         ("budget table", [PY, "-I", "tools/budget_model.py"]),
