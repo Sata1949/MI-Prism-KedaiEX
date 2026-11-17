@@ -58,12 +58,14 @@ def main(argv: list[str]) -> int:
         ("unit tests",
          [PY, "-I", "-m", "unittest", "discover", "-s", "tests"]),
         ("doc number audit", [PY, "-I", "tools/audit_docs.py"]),
+        ("spectrum self-test", [PY, "-I", "tools/ffn_spectrum.py",
+                                "--synthetic"]),
         ("budget table", [PY, "-I", "tools/budget_model.py"]),
         ("ablation table", [PY, "-I", "tools/budget_model.py", "--ablation"]),
         ("time breakdown", [PY, "-I", "tools/budget_model.py", "--explain"]),
         ("deployment gate",
          [PY, "-I", "tools/eval_gate.py", "configs/p1_target.json",
-          "configs/ref_27b.json"]),
+          "configs/p1_low.json", "configs/ref_27b.json"]),
     ]
     if not args.no_probe:
         checks.append(("hardware probe",

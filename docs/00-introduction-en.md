@@ -75,7 +75,7 @@ notes/         architecture decision records
 tools/         probe_hardware.py  measure the machine
                budget_model.py    params/VRAM/speed model, zero deps
                eval_gate.py       CI gate, non-zero exit when a config misses
-               audit_docs.py      re-derive all 223 numbers quoted in the docs
+               audit_docs.py      re-derive all 261 numbers quoted in the docs
                selfcheck.py       everything that must stay green
 tests/         44 unit tests incl. monotonicity, CLI contracts, gate edges
 ```

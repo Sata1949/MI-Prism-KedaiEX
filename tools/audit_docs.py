@@ -33,7 +33,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from budget_model import (  # noqa: E402
-    ARCHS, PALETTES, GIB, Arch, Palette, estimate, p1, p2, p3, ref_27b,
+    ARCHS, PALETTES, GIB, Arch, Palette, estimate,
+    p1, p1_low, p2, p3, ref_27b,
 )
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -331,6 +332,64 @@ def main(argv: list[str]) -> int:
     au.eq("hw", "vram held by desktop MiB", 8192 - 7178, 1014, 0.5)
     au.eq("hw", "prune pct", (1 - 10.15 / 27.01) * 100, 62.4, 0.1)
     au.eq("hw", "p1 half of ceiling", 51.1 * 0.5, 25.55, 0.01)
+
+    # ------------------------------------------------------------------
+    # docs/06-hardware-tiers.md : GPU tier matrix
+    # Budgeted bandwidth = 62% of the peak the doc lists.
+    # ------------------------------------------------------------------
+    TIER_BW_FACTOR = 0.62
+    tiers = [
+        # name, peak GB/s, p1, p1l, p2, p3
+        ("4090 Laptop 16G", 576, 65.2, 86.3, 46.8, 9.6),
+        ("4080 Laptop 12G", 432, 48.9, 64.7, 38.5, 9.3),
+        ("3070Ti Laptop 8G", 448, 50.7, 67.1, 39.5, 9.4),
+        ("3060 Laptop 6G", 336, 38.0, 50.4, 32.1, 9.1),
+        ("4060 Laptop 8G", 272, 30.8, 40.8, 27.2, 8.9),
+        ("3050 Laptop 8G", 224, 25.4, 33.6, 23.3, 8.7),
+    ]
+    for name, peak, w_p1, w_p1l, w_p2, w_p3 in tiers:
+        bw = peak * TIER_BW_FACTOR
+        for key, want in (("p1", w_p1), ("p1l", w_p1l), ("p2", w_p2), ("p3", w_p3)):
+            pal = Palette(**{**PALETTES[key].__dict__, "bw_vram_gbps": bw})
+            got = estimate(ARCHS[key](), pal)["decode_tok_s_ceiling"]
+            au.eq(f"tier {name} {key}", "tps", got, want, tol=0.06)
+
+    # docs/06 §1 : the headline "P1 falls below the floor on a 3050" claim
+    r = estimate(p1(), Palette(**{**PALETTES["p1"].__dict__,
+                                  "bw_vram_gbps": 224 * TIER_BW_FACTOR}))
+    if r["decode_tok_s_ceiling"] >= 30.0:
+        au.note("tier claim", "P1 on 3050 should be below the 30 tok/s floor, "
+                              f"model says {r['decode_tok_s_ceiling']}")
+
+    # docs/06 §5 : largest config that fits a 4 GiB card must still miss
+    a4 = Arch(name="x", hidden=5376, layers=20, heads=32, kv_heads=16,
+              head_dim=128, ffn=14336, vocab=65536, tie_embed=True,
+              global_every=6, window=1024)
+    r = estimate(a4, Palette(name="x", bpw_dense=3.5, bpw_expert=3.5,
+                             bpw_embed=6.0, kv_bits=8, ctx=8192, vram_gib=3.2))
+    au.eq("4GiB smallest", "params", r["params_total_b"], 6.30)
+    au.eq("4GiB smallest", "vram", r["vram_gib"], 4.04)
+    au.eq("4GiB smallest", "deficit", 3.2 - r["vram_gib"], -0.84)
+
+    # ------------------------------------------------------------------
+    # docs/01 §4.5 : P1 vs P1-low comparison table
+    # ------------------------------------------------------------------
+    p1row = estimate(p1(), Palette(**PALETTES["p1"].__dict__))
+    lowrow = estimate(p1_low(), Palette(**PALETTES["p1l"].__dict__))
+    au.eq("p1-low table", "p1 params", p1row["params_total_b"], 10.15)
+    au.eq("p1-low table", "low params", lowrow["params_total_b"], 8.43)
+    au.eq("p1-low table", "p1 weights", p1row["weights_gib"]["total"], 4.89)
+    au.eq("p1-low table", "low weights", lowrow["weights_gib"]["total"], 3.64)
+    au.eq("p1-low table", "p1 vram", p1row["vram_gib"], 6.45)
+    au.eq("p1-low table", "low vram", lowrow["vram_gib"], 5.20)
+    au.eq("p1-low table", "low headroom", 7.0 - lowrow["vram_gib"], 1.80)
+    au.eq("p1-low table", "low tps", lowrow["decode_tok_s_ceiling"], 67.7, 0.06)
+    au.eq("p1-low table", "p1 tps", p1row["decode_tok_s_ceiling"], 51.1, 0.06)
+    # 16k context on P1-low still fits
+    low16 = estimate(p1_low(), Palette(**{**PALETTES["p1l"].__dict__,
+                                          "ctx": 16384}))
+    au.eq("p1-low table", "low 16k vram", low16["vram_gib"], 6.02)
+    au.eq("p1-low table", "low 16k headroom", 7.0 - low16["vram_gib"], 0.98)
 
     # ------------------------------------------------------------------
     # CLI contract: --explain must honour --arch

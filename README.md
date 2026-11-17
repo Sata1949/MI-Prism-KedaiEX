@@ -132,7 +132,8 @@ Moss-KedaiEX/
 ├── README.md                  你在这里
 ├── configs/
 │   ├── ref_27b.json           27B 基线架构（预算与对照的锚点）
-│   └── p1_target.json         第一阶段交付目标 + 验收标准
+│   ├── p1_target.json         第一阶段主目标（10.15B / 4.0bpw / 8k）
+│   └── p1_low.json            第一阶段低档目标（8.43B / 3.5bpw / 16k）
 ├── docs/
 │   ├── 00-introduction-en.md  英文摘要
 │   ├── 01-introduction.md     完整介绍稿（长文，含全部推导）
@@ -140,16 +141,20 @@ Moss-KedaiEX/
 │   ├── 03-roadmap.md          三阶段详细计划与退出条件
 │   ├── 04-eval-protocol.md    评测协议（怎么算"更强"）
 │   ├── 05-risks.md            风险表与已知失败模式
+│   ├── 06-hardware-tiers.md   从 4090 到 1650：每档能跑多少
+│   ├── 07-capability-gains.md 性能提升从哪来（六机制，标注已验证/假设）
 │   └── BENCHMARKS.md          本机硬件实测记录
 ├── notes/decisions/           架构决策记录（4 篇 ADR）
 ├── tools/
 │   ├── probe_hardware.py      实测本机 VRAM/RAM/带宽/GEMV
 │   ├── budget_model.py        参数量/显存/解码速度模型
 │   ├── eval_gate.py           部署门禁，CI 用，不达标非零退出
-│   ├── audit_docs.py          审计文档里 223 个数字能否复现
+│   ├── audit_docs.py          审计文档里 261 个数字能否复现
+│   ├── ffn_spectrum.py        测 FFN 奇异值谱，判定 FFN 收窄是否成立
 │   └── selfcheck.py           一键跑完上面所有检查
 └── tests/
-    └── test_budget_model.py   44 个测试，含单调性与门禁边界
+    ├── test_budget_model.py   预算模型与门禁的测试
+    └── test_ffn_spectrum.py   奇异值谱测量的测试
 ```
 
 ### 工具怎么用
@@ -179,11 +184,15 @@ python -I tools/audit_docs.py
 # 8. 一键跑完全部检查
 python -I tools/selfcheck.py
 
-# 9. 只跑测试
+# 9. 测 FFN 奇异值谱（判定"FFN 收窄 14%"是否成立）
+python tools/ffn_spectrum.py --synthetic          # 方法自测，<1 秒
+python tools/ffn_spectrum.py --synthetic --full   # 27B 真实维度，数分钟
+
+# 10. 只跑测试
 python -I -m unittest discover -s tests -v
 ```
 
-`budget_model.py` 零依赖（只用标准库）。`probe_hardware.py` 需要 numpy，没有 numpy 时会明确报 SKIPPED，不会编造数字。
+`budget_model.py` 零依赖（只用标准库）。`probe_hardware.py` 与 `ffn_spectrum.py` 需要 numpy，没有 numpy 时会明确报 `SKIPPED` / 退出码 2，不会编造数字。
 
 ### 两个阶段优化方向相反（实测）
 
@@ -244,7 +253,7 @@ $ python tools/eval_gate.py configs/p1_target.json
 已完成：
 
 - 本机硬件基线实测，含笔记本特有的坑（PCIe x8、内存降频、核显占用）
-- 预算模型，44 个测试覆盖参数量、KV、单调性、门禁边界、CLI 契约
+- 预算模型与奇异值谱工具，64 个测试覆盖参数量、KV、单调性、门禁边界、CLI 契约、布局识别
 - 部署门禁，`configs/` 下两个配置一个 PASS 一个 INFO
 - 前沿扫描：确认"只砍层"不可行，"三杠杆叠加"可行
 

@@ -1,0 +1,38 @@
+{
+  "schema": "moss-kedaiex/arch@1",
+  "id": "p1-low-8b-dense",
+  "role": "phase1-target",
+  "description": "第一阶段低档目标：面向中低端 8 GB 显卡（RTX 3050/3060 Laptop 档，显存带宽约 224-336 GB/s 峰值）。相对 p1-target 再收窄 FFN 并降一档量化，换取更低带宽需求。显存只占 5.20 GiB，余量 1.80 GiB，是三个候选里唯一在 3050 档位也能过 30 tok/s 的配置。",
+  "arch": {
+    "name": "P1-low 8.43B dense",
+    "hidden": 5376,
+    "layers": 26,
+    "heads": 32,
+    "kv_heads": 16,
+    "head_dim": 128,
+    "ffn": 14336,
+    "vocab": 131072,
+    "tie_embed": true,
+    "global_every": 6,
+    "window": 1024
+  },
+  "palette": {
+    "name": "p1low-3.5bpw-kv8-8k",
+    "bpw_dense": 3.5,
+    "bpw_expert": 3.5,
+    "bpw_embed": 6.0,
+    "kv_bits": 8,
+    "ctx": 8192
+  },
+  "acceptance": {
+    "vram_gib_max": 7.0,
+    "vram_gib_target": 5.20,
+    "headroom_gib_min": 0.45,
+    "decode_tok_s_floor": 30,
+    "decode_tok_s_floor_gpu": "RTX 3050 Laptop 8GB (139 GB/s budgeted)"
+  },
+  "notes": [
+    "3.5 bpw 是这条配置的关键代价：比 4.0 bpw 掉精度，但换来的带宽余量让低端卡也能用。",
+    "如果目标机器确定是 4060 及以上，应该用 p1-target（10.15B / 4.0bpw），参数更多、精度更高。"
+  ]
+}

@@ -311,6 +311,19 @@ def p1() -> Arch:
                 global_every=6, window=1024)
 
 
+def p1_low() -> Arch:
+    """Phase 1 low-end target. Must match configs/p1_low.json exactly.
+
+    Narrower FFN and one step lower precision than p1(), which buys enough
+    bandwidth headroom to clear 30 tok/s on a 224 GB/s-peak laptop GPU
+    (RTX 3050/3060 class). p1() does not: it lands at 25.4 tok/s there.
+    """
+    return Arch(name="P1-low target (26L, ffn 14336, vocab 128k)",
+                hidden=5376, layers=26, heads=32, kv_heads=16, head_dim=128,
+                ffn=14336, vocab=131072, tie_embed=True,
+                global_every=6, window=1024)
+
+
 def p1_depth_only() -> Arch:
     """Ablation anchor: trim depth only, leave FFN and vocab at 27B values."""
     return Arch(name="P1 depth-only (26L, ffn 21504, vocab 256k)",
@@ -348,6 +361,8 @@ PALETTES = {
                    bpw_embed=6.0, kv_bits=16, ctx=8192),
     "p1":  Palette(name="4.0bpw/KV8/8k [SHIPPED]", bpw_dense=4.0,
                    bpw_expert=4.0, bpw_embed=6.0, kv_bits=8, ctx=8192),
+    "p1l": Palette(name="3.5bpw/KV8/8k [LOW-END]", bpw_dense=3.5,
+                   bpw_expert=3.5, bpw_embed=6.0, kv_bits=8, ctx=8192),
     "p1d": Palette(name="4.0bpw/KV8/8k", bpw_dense=4.0, bpw_expert=4.0,
                    bpw_embed=6.0, kv_bits=8, ctx=8192),
     "p1f": Palette(name="4.5bpw/KV8/8k", bpw_dense=4.5, bpw_expert=4.5,
@@ -361,6 +376,7 @@ PALETTES = {
 ARCHS = {
     "ref": ref_27b,
     "p1": p1,
+    "p1l": p1_low,
     "p1d": p1_depth_only,
     "p1f": p1_fallback,
     "p2": p2,
