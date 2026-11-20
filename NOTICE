@@ -1,5 +1,5 @@
-Moss KedaiEX
-Copyright (c) 2026 Moss KedaiEX contributors
+MI-Prism-KedaiEX
+Copyright (c) 2026 MI-Prism-KedaiEX contributors
 
 This product includes software and model weights derived from the following
 projects. Their licenses and attributions are reproduced below as required by
@@ -14,7 +14,7 @@ Qwen3.8-27B
   License: Apache License 2.0
   Source:  https://huggingface.co/Qwen/Qwen3.8-27B
 
-  Modifications by Moss KedaiEX (to be applied when derivative weights are
+  Modifications by MI-Prism-KedaiEX (to be applied when derivative weights are
   published):
     - depth pruning: 65 layers -> N layers (N: see configs/p1_target.json)
     - FFN narrowing: 17408 -> N channels

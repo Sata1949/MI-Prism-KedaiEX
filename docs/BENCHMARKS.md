@@ -185,7 +185,7 @@ gemv     : 3.81 GFLOPS
 
 ```
 $ python tools/probe_hardware.py
-Moss KedaiEX hardware probe
+MI-Prism-KedaiEX hardware probe
   host     : Windows 11 (AMD64)
   gpu      : NVIDIA GeForce RTX 3070 Ti Laptop GPU  8192 MiB (free 7178 MiB)  cc 8.6  driver 617.14
   pcie     : Gen1 x8 current, Gen4 x16 max  [idle link-down; budget Gen4]

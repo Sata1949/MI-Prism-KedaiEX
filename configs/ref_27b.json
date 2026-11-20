@@ -1,5 +1,5 @@
 {
-  "schema": "moss-kedaiex/arch@1",
+  "schema": "mi-prism-kedaiex/arch@1",
   "id": "ref-27b-dense",
   "role": "baseline",
   "description": "27B 量级 Dense 基线：62 层，5:1 局部/全局混合注意力，GQA 32/16，词表 262144。这不是任何厂商的官方参数表，而是项目内部用于预算与对照的参考架构。换基座时只改本文件，文档与工具全部从它派生。",

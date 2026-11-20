@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Moss KedaiEX hardware probe.
+"""MI-Prism-KedaiEX hardware probe.
 
 Records the numbers the budget model is calibrated against. Run this on any
 machine before trusting a config; the output is the input to
@@ -282,7 +282,7 @@ def main(argv: list[str]) -> int:
     bw = report["bandwidth"]
     gv = report["gemv"]
 
-    print("Moss KedaiEX hardware probe")
+    print("MI-Prism-KedaiEX hardware probe")
     print(f"  host     : {report['platform']['system']} "
           f"{report['platform']['release']} ({report['platform']['machine']})")
     if g.get("available"):

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Moss KedaiEX deployment gate.
+"""MI-Prism-KedaiEX deployment gate.
 
 Reads an architecture config, runs it through the budget model, and exits
 non-zero if it misses the deployment envelope. This is the script CI runs: a

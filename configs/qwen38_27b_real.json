@@ -1,5 +1,5 @@
 {
-  "schema": "moss-kedaiex/arch@2",
+  "schema": "mi-prism-kedaiex/arch@2",
   "id": "qwen38-27b-real",
   "role": "baseline",
   "description": "真实基座架构，从本机 IQ3_S GGUF 头部实测提取，替换 v1 中被证明错误的假设值。v1 假设的是 62 层纯注意力 Transformer；实际是 65 层混合架构：17 层全注意力 + 48 层线性注意力（gated DeltaNet 风格 SSM），每层都有 FFN。",

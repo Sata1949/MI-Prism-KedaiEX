@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Moss KedaiEX budget & throughput model.
+"""MI-Prism-KedaiEX budget & throughput model.
 
 Zero dependencies (stdlib only). Every number quoted in docs/ comes from this
 script, so prose cannot drift from the model it describes.

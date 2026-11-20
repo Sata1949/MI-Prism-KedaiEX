@@ -1,4 +1,4 @@
-# Moss KedaiEX — English Summary
+# MI-Prism-KedaiEX — English Summary
 
 **Fit a 27B-class model into 8 GB VRAM + 16 GB RAM, and make it better than what
 fits there by default.**

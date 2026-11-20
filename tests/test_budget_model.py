@@ -1,4 +1,4 @@
-"""Tests for the Moss KedaiEX budget model and deployment gate.
+"""Tests for the MI-Prism-KedaiEX budget model and deployment gate.
 
 Run: python -I -m unittest discover -s tests -v
 """

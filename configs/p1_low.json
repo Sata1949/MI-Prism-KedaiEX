@@ -1,5 +1,5 @@
 {
-  "schema": "moss-kedaiex/arch@1",
+  "schema": "mi-prism-kedaiex/arch@1",
   "id": "p1-low-8b-dense",
   "role": "phase1-target",
   "description": "第一阶段低档目标：面向中低端 8 GB 显卡（RTX 3050/3060 Laptop 档，显存带宽约 224-336 GB/s 峰值）。相对 p1-target 再收窄 FFN 并降一档量化，换取更低带宽需求。显存只占 5.20 GiB，余量 1.80 GiB，是三个候选里唯一在 3050 档位也能过 30 tok/s 的配置。",

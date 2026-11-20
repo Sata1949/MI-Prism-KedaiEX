@@ -10,7 +10,7 @@
 
 | 对象 | 许可证 | 商用 | 改再分发 | 来源 |
 |---|---|---|---|---|
-| **Moss KedaiEX 本项目** | **MIT** | ✅ | ✅ | 本仓库 `LICENSE` |
+| **MI-Prism-KedaiEX 本项目** | **MIT** | ✅ | ✅ | 本仓库 `LICENSE` |
 | Qwen3.8-27B（基座） | **Apache-2.0** | ✅ | ✅ | GGUF 头部 `general.license` |
 | Qwen3.8-27B GGUF 量化（Unsloth） | 继承 Apache-2.0 | ✅ | ✅ | GGUF 头部 + 量化不改变许可 |
 | Qwen3.5-9B（MOSS-Image 文本编码器） | **Apache-2.0** | ✅ | ✅ | HF API `license:apache-2.0` |
@@ -28,7 +28,7 @@
 | 条款 | 状态 |
 |---|---|
 | 标题 `MIT License` | ✅ |
-| 版权行 `Copyright (c) 2026 Moss KedaiEX contributors` | ✅ |
+| 版权行 `Copyright (c) 2026 MI-Prism-KedaiEX contributors` | ✅ |
 | 授权（use/copy/modify/merge/publish/distribute/sublicense/sell） | ✅ |
 | "without restriction" | ✅ |
 | 保留声明要求 | ✅ |
@@ -183,7 +183,7 @@ Apache-2.0 宽松，但不是"随便用"。发布本项目衍生权重前逐条�
 | 4 | 专利授权与终止 | §3 | 无需动作（不会主动起诉即可） |
 | 5 | 不使用商标 | §6 | 命名不得暗示 Qwen 官方背书 |
 
-**第 5 条对本项目有直接影响**：项目名叫"Moss KedaiEX"，与 Qwen 无关，没问题；但如果宣传里写"Qwen 官方优化版"就违规了。
+**第 5 条对本项目有直接影响**：项目名叫"MI-Prism-KedaiEX"，与 Qwen 无关，没问题；但如果宣传里写"Qwen 官方优化版"就违规了。
 
 ---
 

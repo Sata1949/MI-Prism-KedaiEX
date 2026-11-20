@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""One-shot verification for Moss KedaiEX.
+"""One-shot verification for MI-Prism-KedaiEX.
 
 Runs everything that must stay green before a commit: unit tests, the budget
 table, the ablation table, and the deployment gate. `make` is not available on

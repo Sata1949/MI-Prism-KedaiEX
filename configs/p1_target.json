@@ -1,5 +1,5 @@
 {
-  "schema": "moss-kedaiex/arch@1",
+  "schema": "mi-prism-kedaiex/arch@1",
   "id": "p1-target-10b-dense",
   "role": "phase1-target",
   "description": "第一阶段交付目标。相对 ref-27b-dense 做三件事：层数 62->26（按重要性选层，不用均匀抽层）、FFN 21504->18432、词表 262144->131072。宽度与注意力结构不动，因此剪枝后的权重可以直接从原模型继承，不需要重新预训练，只需要一次 QAD（量化感知蒸馏）回填。",
