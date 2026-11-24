@@ -126,6 +126,28 @@ KEX 是在 MOSS-Image SFT 上继续训练出来的成像模型：只替换尾部
 
 ---
 
+## 权重
+
+| 文件 | 内容 | 大小 | SHA256 |
+|---|---|---:|---|
+| `MI-DIT-Prism-KedaiEX1_ki8_15peak8.safetensors` | KI8 1.5.0-rc3 Peak8/W32（W8A16） | 5,241,596,371 B | `7064ed51…e572` |
+
+按 128 MiB 分片放在 GitHub Release `kex-weights-v1.5rc3`（40 片，单片 < 2 GiB）：
+
+```bash
+BASE=https://github.com/Sata1949/MI-Prism-KedaiEX/releases/download/kex-weights-v1.5rc3
+for i in $(seq 0 39); do
+  n=$(printf "%03d" "$i")
+  curl -L --fail --retry 5 -O "$BASE/MI-DIT-Prism-KedaiEX1_ki8_15peak8.safetensors.part$n"
+done
+cat MI-DIT-Prism-KedaiEX1_ki8_15peak8.safetensors.part* > MI-DIT-Prism-KedaiEX1_ki8_15peak8.safetensors
+sha256sum MI-DIT-Prism-KedaiEX1_ki8_15peak8.safetensors
+```
+
+完整分片哈希与加载说明见 [docs/weights.md](docs/weights.md)。KEX BF16 基线不随本 Release 分发。
+
+---
+
 ## 安装
 
 ```bash
