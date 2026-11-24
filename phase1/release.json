@@ -1,0 +1,172 @@
+{
+  "schema": "mi-prism-kedaiex/phase1-release@3",
+  "release": "phase1-2026-11-22",
+  "generated": "2026-11-22",
+  "revision_note": "v3: VAE licence corrected to Apache-2.0 (local flux2-vae_small is byte-identical to black-forest-labs/FLUX.2-small-decoder). The full-size decoder is non-commercial and parked. Qwen-Image-2.1, its LoRAs and Kijai-derived LoRAs are out of scope for distribution. Commercial use of the assembled pipeline is no longer blocked.",
+  "copyright": "Copyright (c) 2026 sata1921, seeds, suihan, hilo114",
+  "note": "What actually ships, in what form, under which grant, with which files. `tools/license_audit.py` verifies the hashes. This file is the packing list; components.json is the legal registry. A layer here must reference component ids there.",
+
+  "layers": [
+    {
+      "layer": "mit",
+      "spdx": "MIT",
+      "license_file": "LICENSE",
+      "copyright": "sata1921, seeds, suihan, hilo114",
+      "commercial": true,
+      "closed_source_allowed": true,
+      "components": ["ki8-core", "converter", "installer"],
+      "excludes": [
+        {"component": "converter", "path": "refs/", "why": "verbatim upstream Apache-2.0 copies, registered separately as converter-refs"}
+      ],
+      "obligations": [
+        "Include the MIT text and the four-name copyright line in all copies",
+        "No other condition"
+      ]
+    },
+    {
+      "layer": "apache-weights",
+      "spdx": "Apache-2.0",
+      "license_file": "LICENSE-APACHE-2.0",
+      "notice_file": "NOTICE",
+      "commercial": true,
+      "closed_source_allowed": true,
+      "components": ["dit-weights", "dit-weights-unfused", "gsq-te", "flux2-vae"],
+      "obligations": [
+        "§4a — give recipients a copy of the License",
+        "§4b — cause modified files to carry prominent notices of the change",
+        "§4c — retain the NOTICE file and attribution notices",
+        "§6 — do not use the Qwen, MOSS or FLUX names to imply endorsement"
+      ],
+      "modification_notices": {
+        "dit-weights": "Modified MOSS-Image SFT DiT (KedaiEX1): KI8 1.4 weight-only quantisation, W32 group, e2m5 element grid, E5F3 block scale, per-projection format chosen by W32 error minimisation",
+        "dit-weights-unfused": "KI8 1.4 quantisation from bf16 MOSSImageTransformer, unfused q/k/v layout",
+        "gsq-te": "hidden-state tap moved to last_rmsnorm (hidden 5120); LM head removed (headless export)",
+        "flux2-vae": "none — verbatim upstream file from black-forest-labs/FLUX.2-small-decoder"
+      },
+      "vae_provenance": {
+        "local_file": "flux2-vae_small.safetensors",
+        "bytes": 249521340,
+        "sha256": "d8d52ba036475f5fb07c8b435e176d3d97ebfa82f0d1a1c317f9cc1e25bd013b",
+        "upstream_repo": "black-forest-labs/FLUX.2-small-decoder",
+        "upstream_revision": "a3efc24f613ef42d9428af62fdbd6f5fd8856c4a",
+        "upstream_file": "diffusion_pytorch_model.safetensors",
+        "proof": "HF tree API size 249,521,340 and lfs.oid d8d52ba0... match the local sha256 exactly",
+        "licence_statement_in_readme": [
+          "Available under the Apache 2.0 license.",
+          "This model is licensed under the https://www.apache.org/licenses/LICENSE-2.0."
+        ]
+      }
+    },
+    {
+      "layer": "apache-refs",
+      "spdx": "Apache-2.0",
+      "license_file": "LICENSE-APACHE-2.0",
+      "commercial": true,
+      "closed_source_allowed": true,
+      "components": ["converter-refs"],
+      "note": "Listed as its own layer on purpose. These 7 files sit inside an MIT-labelled bundle but are verbatim upstream copies and are NOT covered by the project MIT grant.",
+      "files": [
+        "qwen38_tokenizer.json",
+        "moss_tokenizer.json",
+        "moss_tokenizer_config.json",
+        "moss_te_config.json",
+        "moss_transformer_config.json",
+        "moss_vae_config.json",
+        "moss_model_index.json"
+      ],
+      "obligations": [
+        "§4a — ship the Apache-2.0 text with the converter bundle",
+        "§4c — retain OpenMOSS and Qwen attribution",
+        "Say so on the release page; do not present the bundle as wholly MIT"
+      ]
+    },
+    {
+      "layer": "gpl-nodes",
+      "spdx": "GPL-3.0",
+      "license_file": "licenses/LICENSE-GPL-3.0.txt",
+      "commercial": true,
+      "closed_source_allowed": false,
+      "components": ["comfyui-nodes"],
+      "applies_to": "the seven standalone custom_nodes packages, 27 nodes",
+      "source_layers": {
+        "comfyui-nodes": "MIT (installer, by the four-person team) — the grant changes with the distribution form, not with the file"
+      },
+      "also_gpl_after_install": ["comfyui-ki8-codec", "comfy/ops.py patched in place"],
+      "obligations": [
+        "Distribute the corresponding source (the package .py files qualify)",
+        "Ship the full GPL-3.0 text",
+        "State the changes made where files were modified",
+        "Do not add further restrictions on redistribution"
+      ]
+    }
+  ],
+
+  "excluded_from_distribution": [
+    {
+      "components": ["qwen-image-21"],
+      "reason": "Qwen Research License Agreement, §2a non-commercial only. Local validation use only."
+    },
+    {
+      "components": ["qwen-image-loras"],
+      "reason": "Inherit the base model's non-commercial terms; two local files have no identifiable upstream."
+    },
+    {
+      "components": ["moss-loras"],
+      "reason": "The Kijai-derived file has no licence grant upstream (cardData.license null), so it defaults to all-rights-reserved. Team-trained LoRAs are MIT but the component is excluded as a whole to avoid shipping the unlicensed file."
+    }
+  ],
+
+  "parked_noncommercial": [
+    {
+      "component": "flux2-vae-small",
+      "file": "flux2-vae.safetensors",
+      "bytes": 336213556,
+      "sha256": "d64f3a68e1cc4f9f4e29b6e0da38a0204fe9a49f2d4053f0ec1fa1ca02f9c4b5",
+      "location": "ComfyUI/models/vae/_noncommercial_do_not_ship/",
+      "license": "FLUX.1-dev-Non-Commercial",
+      "why_parked": "No Apache-2.0 release of the FULL decoder exists. FLUX.2-klein publishes only a DiT single-file with no separate VAE, so FLUX.2-small-decoder is the only Apache-2.0 decoder BFL ships.",
+      "guard": "Moved out of models/vae/ so ComfyUI's model scan cannot load it."
+    }
+  ],
+
+  "composite_licence": {
+    "statement": "MIT + Apache-2.0 + GPL-3.0. The effective terms for the assembled pipeline are the union of their obligations: MIT attribution, Apache-2.0 §4b/§4c notices, GPL-3.0 source availability for the node layer. No non-commercial term remains in the shipped pipeline.",
+    "effective_commercial": true,
+    "effective_redistribution": "allowed, provided every layer's notice obligations are met"
+  },
+
+  "corrections_recorded": [
+    {
+      "date": "2026-11-22",
+      "what": "VAE licence was reported as FLUX non-commercial.",
+      "why_wrong": "The conclusion was inherited from the Comfy-Org/Flux-2-Dev repository-level tag without checking the file itself.",
+      "how_fixed": "Hashed the local file and reverse-looked-up the digest. It matches black-forest-labs/FLUX.2-small-decoder/diffusion_pytorch_model.safetensors byte for byte, and that repo is Apache-2.0 with the grant stated in its README.",
+      "lesson": "File-level provenance outranks a repackager's repo-level tag."
+    }
+  ],
+
+  "unresolved": [
+    {
+      "component": "ki8-core",
+      "detail": "no LICENSE file inside the release directory KI8-1.4.0-rc1/KI8/",
+      "action": "copy LICENSE into KI8/ at packing time"
+    },
+    {
+      "component": "comfyui-nodes",
+      "detail": "no SPDX headers in the 7 package __init__.py files yet",
+      "action": "prepend '# SPDX-License-Identifier: GPL-3.0-or-later' to each"
+    }
+  ],
+
+  "packing_commands": {
+    "verify_everything": "python -I tools/license_audit.py",
+    "verify_fast": "python -I tools/license_audit.py --skip-hashes",
+    "full_gate": "python -I tools/selfcheck.py",
+    "emit_report": "python -I tools/license_audit.py --json phase1/license_audit.json"
+  },
+
+  "layer_count": 4,
+  "component_count": 17,
+  "conflict_count": 5,
+  "resolved_conflict_count": 3
+}

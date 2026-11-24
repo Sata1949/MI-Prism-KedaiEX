@@ -1,0 +1,108 @@
+{
+  "registry": "D:\\MI-Prism-KedaiEX\\phase1\\components.json",
+  "checks": [
+    {
+      "ok": true,
+      "label": "component ids unique",
+      "detail": ""
+    },
+    {
+      "ok": true,
+      "label": "derived_from references resolve",
+      "detail": ""
+    },
+    {
+      "ok": true,
+      "label": "every component declares a license (or a license_set)",
+      "detail": "[]"
+    },
+    {
+      "ok": true,
+      "label": "every component declares a license_status",
+      "detail": "[]"
+    },
+    {
+      "ok": true,
+      "label": "conflict references resolve",
+      "detail": ""
+    },
+    {
+      "ok": true,
+      "label": "every unresolved/combined-work component appears in a conflict",
+      "detail": "set()"
+    },
+    {
+      "ok": true,
+      "label": "MIT: 1,086 chars",
+      "detail": "LICENSE"
+    },
+    {
+      "ok": true,
+      "label": "Apache-2.0: 11,358 chars",
+      "detail": "LICENSE-APACHE-2.0"
+    },
+    {
+      "ok": true,
+      "label": "GPL-3.0: 35,149 chars",
+      "detail": "LICENSE-GPL-3.0.txt"
+    },
+    {
+      "ok": true,
+      "label": "Qwen-Research-License: 7,821 chars",
+      "detail": "LICENSE-QWEN-RESEARCH.txt"
+    },
+    {
+      "ok": true,
+      "label": "FLUX.1-dev-Non-Commercial: 18,510 chars",
+      "detail": "LICENSE-FLUX-NONCOMMERCIAL.md"
+    },
+    {
+      "ok": true,
+      "label": "ki8-core: tree 75 files, 2,635,539 bytes",
+      "detail": "beba38db5c9d2871"
+    },
+    {
+      "ok": true,
+      "label": "dit-weights: 5,241,594,706 bytes",
+      "detail": "3dc0b5f82a85c91e"
+    },
+    {
+      "ok": true,
+      "label": "dit-weights-unfused: 5,561,121,456 bytes",
+      "detail": "5b41fcfedca504d7"
+    },
+    {
+      "ok": true,
+      "label": "converter: tree 37 files, 662,600,769 bytes",
+      "detail": "9df6e7e8fae5caaf"
+    },
+    {
+      "ok": true,
+      "label": "converter-refs: tree 7 files, 32,802,963 bytes",
+      "detail": "edaf2c59292647af"
+    },
+    {
+      "ok": true,
+      "label": "gsq-te: 11,056,384,896 bytes",
+      "detail": "0758183b9990a9d4"
+    },
+    {
+      "ok": true,
+      "label": "installer: tree 32 files, 465,901 bytes",
+      "detail": "3c2d26fb5bfb2897"
+    },
+    {
+      "ok": true,
+      "label": "flux2-vae: 249,521,340 bytes",
+      "detail": "d8d52ba036475f5f"
+    },
+    {
+      "ok": true,
+      "label": "gsq-te: GGUF general.license = apache-2.0",
+      "detail": "registry says Apache-2.0"
+    }
+  ],
+  "passed": 20,
+  "total": 20,
+  "exit": 0
+}

@@ -76,13 +76,13 @@ class TestAuditCatchesDrift(unittest.TestCase):
 
     def test_headline_vram_number_drift(self):
         self._mutate_and_check(
-            "README.md",
+            "docs/12-budget-archive.md",
             "27B reference  19.02 GiB",
             "27B reference  29.02 GiB")
 
     def test_tier_throughput_drift(self):
         self._mutate_and_check(
-            "README.md",
+            "docs/12-budget-archive.md",
             "| 参考机（3070 Ti，278 GB/s） | 50.7 tok/s |",
             "| 参考机（3070 Ti，278 GB/s） | 59.7 tok/s |")
 

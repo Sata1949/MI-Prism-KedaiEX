@@ -71,6 +71,9 @@ def main(argv: list[str]) -> int:
         ("deployment gate",
          [PY, "-I", "tools/eval_gate.py", "configs/p1_target.json",
           "configs/p1_low.json", "configs/ref_27b.json"]),
+        # Phase-1 artefact registry. Hash verification is on by default because
+        # a drifted artefact silently invalidates the license attached to it.
+        ("phase1 license audit", [PY, "-I", "tools/license_audit.py"]),
     ]
     if not args.no_probe:
         checks.append(("hardware probe",

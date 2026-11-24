@@ -1,309 +1,258 @@
 # MI-Prism-KedaiEX
 
-**在 6-8 GB 显存 + 16 GB 内存的笔记本上，把一个 27B 级别的模型塞进去，并且让它比"同硬件能跑的东西"更强。**
+**8 GB 笔记本上的 KEX 出图栈：KI8 1.5.0-rc3，W8A16，8.25 bit/权重。对 KEX BF16 参考 43.34 dB PSNR / LPIPS-Alex 0.00756。**
 
-MI-Prism-KedaiEX 是一个激进的模型改造项目。它不接受"小机器就该用小模型"这个前提，也不接受"量化到 2bit 就算胜利"这种自我安慰。它要的是同一件事的两个面：**参数量不掉，或者掉得比常识预期的少；而在同样的硬件上，实际能力上升。**
-
-- 项目状态：**第一阶段进行中**
-- 参考硬件：RTX 3070 Ti Laptop（8 GB）/ Ryzen 7 6800H / 16 GB DDR5
-- 支持范围：**6 GB 及以上显存**（4 GB 是硬墙，见 `docs/06-hardware-tiers.md`）
-- 许可：代码 MIT；衍生权重 Apache-2.0（基座 Qwen3.8-27B，见 `docs/09-licensing.md`）
-
-> **⚠ 架构勘误（2026-11-17）**
-> 本仓库 v1 的参考架构（62 层 / hidden 5376 / GQA 32:16 / FFN 21504 / 词表共享）
-> **与实际基座完全不符**。真实模型是 **65 层混合架构：17 层全注意力 + 48 层线性注意力，
-> hidden 5120，MQA 24:4，head_dim 256，FFN 17408，词表 248320 未共享**，
-> 由本机 GGUF 头部实测提取（`python tools/gguf_peek.py <file> --arch`）。
->
-> 主结论"27B 装不进 7 GiB"更成立（实测文件 11.21 GiB），
-> 但下文所有**具体方案数字（层数、显存、tok/s）均基于错误架构，待重算**。
-> 详见 [docs/08-architecture-correction.md](docs/08-architecture-correction.md)。
+- 发行版：**KI8 1.5.0-rc3**（Peak8 / W32，W8A16）
+- 基线：**KEX BF16（clip7）**
+- 参考机：RTX 3070 Ti Laptop 8 GB / Ryzen 7 6800H / 16 GB DDR5
+- 许可：MIT / Apache-2.0 / GPL-3.0 分层，见 [LICENSING-LAYERS.md](LICENSING-LAYERS.md)
 
 ---
 
-## 一句话结论
+## 结论
 
-在参考机上，一个 27B Dense 原样部署需要 **19.02 GiB 显存**（4.5 bpw + KV16 + 8k），比可用量多 **12.02 GiB**，解码上限 **0.8 tok/s** —— 根本不可用。MI-Prism-KedaiEX 第一阶段把它压到 **10.15B 参数 / 4.89 GiB 权重 / 6.45 GiB 总占用 / 51 tok/s 上限**，留 0.55 GiB 给浏览器和 IDE。这是三层剪枝的合成结果，不是单靠量化硬挤。
+同一张 256×256、同噪声、同条件、8 步、seed 20261123：
 
-```
-27B reference  19.02 GiB  ████████████████████  over by 12.02
-P1 target       6.45 GiB  ██████▋                headroom +0.55
-                └─────────────────────────────── 7.00 GiB usable
-```
-
-以上数字由 `tools/budget_model.py` 生成，非手算。
-
-### 两条交付线，因为"中低端"不止一档
-
-参考机是 3070 Ti Laptop（448 GB/s 峰值），在 8 GB 卡里偏高。同样的 P1 在 RTX 3050 Laptop 上只有 **25.4 tok/s**，低于 30 门槛。所以有两个目标：
-
-| | P1（主目标） | P1-low（低档目标） |
+| 指标 | KEX BF16（clip7） | KI8 1.5.0-rc3 W8A16 |
 |---|---:|---:|
-| 参数 / 权重 | 10.15B / 4.89 GiB | 8.43B / 3.64 GiB |
-| 显存 / 余量 | 6.45 GiB / +0.55 | 5.20 GiB / **+1.80** |
-| 上下文 | 8k | **16k** |
-| 参考机（3070 Ti，278 GB/s） | 50.7 tok/s | 67.2 tok/s |
-| RTX 4060 8G（169 GB/s） | 30.8 ✓ | 40.9 ✓ |
-| RTX 3060 6G（208 GB/s） | 38.0 ✓ | 50.3 ✓ |
-| **RTX 3050 8G（139 GB/s）** | **25.4 ✗** | **33.6 ✓** |
+| RGB PSNR | 基准 | **43.34 dB** |
+| LPIPS-Alex ↓ | 0 | **0.00756** |
+| LPIPS-Squeeze ↓ | 0 | **0.00663** |
+| latent PSNR | 基准 | 21.56 dB |
+| latent 相关 | 1.0 | **0.9964** |
+| 最大像素差 | 0 | 18 / 255 |
+| 显存峰值 | —（CPU 采样） | **5071 MiB** |
+| 步时 | 71.91 s（CPU） | **2.999 s** |
+| 8 步总时 | 575.28 s | **25.15 s** |
 
-**P1-low 是唯一覆盖 6-8 GB 全档位的配置。** 完整档位表（4090 → 1650，含 4 GB 硬墙分析）见 `docs/06-hardware-tiers.md`。
+**43.34 dB / LPIPS 0.00756 是逐像素基本分不出来的水平。** KEX 的构图、肤色、逆光轮廓和末层质感，在 8.25 bit/权重下保住了。
 
----
+同码率（8 位值 + 2 位/权重的 E5F3 尺度 = 8.25 bit/w）、同权重、同噪声，KI8 1.5 的 Peak8 对 INT8：
 
-## 为什么要做这件事
+| 臂 | 激活 | 步时 | RGB PSNR | LPIPS-Alex ↓ | 显存 |
+|---|---:|---:|---:|---:|---:|
+| **KI8 1.5 Peak8（W8A16）** | BF16 | **2.999 s** | **43.34 dB** | **0.00756** | 5071 MiB |
+| INT8 W8A16 | BF16 | 8.74 s | 38.72 dB | 0.01878 | 5073 MiB |
+| INT8 W8A8 | INT8 | 10.99 s | 35.51 dB | 0.01663 | 5102 MiB |
 
-### 硬约束是真实的，而且比标称更窄
-
-大多数人拿 8 GB 卡算显存时用的是 8.0 GiB。实测不是：
-
-| 项 | 标称 | 实测 | 差 |
-|---|---|---|---|
-| 显存 | 8 GiB | 7.00 GiB 可用（桌面合成器占 ~1 GiB） | −1.0 |
-| 内存 | 16 GB | 15.19 GiB 可见（核显保留） | −0.8 |
-| PCIe | Gen4 x16 | Gen4 **x8** | 带宽减半 |
-| 内存带宽 | 5600 MT/s | 4800 MT/s 实际运行，**19.3 GB/s** 流式读 | −14% |
-
-这些数字全部来自 `tools/probe_hardware.py` 在本机的实测，不是抄规格书。规格书在笔记本上普遍虚高 2 倍，用它做预算会得出"能跑"的错误结论。
-
-### 一个反直觉的发现：深度剪枝会输给 KV 缓存
-
-直觉是"砍层最省显存"。实测不是。固定 27B 形状（hidden 5376 / FFN 21504 / vocab 262144）、4.5 bpw、KV16、8k 上下文，只扫层数：
-
-| 层数 | 参数 | 权重 GiB | KV GiB | 总显存 | 缺口 | 解码上限 |
-|---:|---:|---:|---:|---:|---:|---:|
-| 62 | 27.01B | 14.39 | 3.88 | 19.02 | +12.02 | 0.8 tok/s |
-| 48 | 21.23B | 11.37 | 3.00 | 15.12 | +8.12 | 1.2 tok/s |
-| 40 | 17.92B | 9.64 | 2.50 | 12.89 | +5.89 | 1.6 tok/s |
-| 32 | 14.62B | 7.91 | 2.00 | 10.66 | +3.66 | 2.6 tok/s |
-| 28 | 12.97B | 7.04 | 1.75 | 9.54 | +2.54 | 3.6 tok/s |
-| 26 | 12.14B | 6.61 | 1.62 | 8.98 | +1.98 | 4.5 tok/s |
-| 24 | 11.32B | 6.18 | 1.50 | 8.43 | +1.43 | 6.1 tok/s |
-
-砍到 24 层，参数掉了 58%，显存只掉了 56%，缺口仍有 1.43 GiB。**光靠砍层这条路走不通**：每层都带一份 KV，砍层只省权重，KV 的节省是线性的、很慢；而且层数越少，单层承担的语义越多，掉点越陡。真正有效的是三个杠杆叠加。
-
-### 三个杠杆的实测边际收益
-
-从 P1 基线（26L / FFN 18432 / vocab 128k / 4.0 bpw / KV8 / 8k）出发，每次只动一个：
-
-| 杠杆 | 参数变化 | 显存 | 余量 | 判断 |
-|---|---:|---:|---:|---|
-| 词表 128k → 64k | −0.35B | 6.21 | +0.79 | 便宜，但伤多语言 |
-| 词表 128k → 32k | −0.53B | 6.08 | +0.92 | 只适合纯中文/英文 |
-| 深度 26 → 24 | −0.73B | 6.05 | +0.95 | 便宜，能力损失可控 |
-| 深度 26 → 28 | +0.73B | 6.85 | +0.15 | 上限，再深就爆 |
-| FFN 18432 → 16384 | −0.86B | 6.05 | +0.95 | 便宜 |
-| FFN 18432 → 14336 | −1.72B | 5.65 | +1.35 | 很便宜，但伤推理 |
-| bpw 4.0 → 4.5 | 0 | 7.00 | 0.00 | 刚好卡死 |
-| bpw 4.0 → 3.5 | 0 | 5.90 | +1.10 | 省钱，伤精度 |
-| KV 8 → 4 bit | 0 | 6.05 | +0.95 | 长上下文才值得 |
-| 上下文 8k → 16k | 0 | 7.27 | −0.27 | 超了 |
-
-（完整表：`python tools/budget_model.py --ablation`，17 行）
-
-这张表说明 P1 的选择不是拍脑袋：**26L / FFN 18432 / vocab 128k / 4.0 bpw 恰好是余量 0.55 GiB 的那个点**，再往前一步就掉出可用区。注意"余量 0.00"的 4.5 bpw 那一行：它和 4.0 bpw 只差 0.55 GiB，却把解码上限从 51 tok/s 砍到 45 tok/s，且没有任何安全边际 —— 这就是为什么最终选 4.0 而不是更高的精度。
+同码率下 Peak8 比 INT8 W8A16 **高 4.62 dB、LPIPS 低 2.5 倍、快 2.9 倍**。INT8 没有专用内核，走逐 output tile 反量化再 BF16 GEMM；Peak8 走专用 PTX 内核。
 
 ---
 
-## 三阶段路线
+## 画质：KEX 的构图与审美
 
-| 阶段 | 目标 | 手段 | 状态 |
-|---|---|---|---|
-| **一** | 27B → 10.15B Dense，跑得动 | 层剪枝 + FFN 收窄 + 词表裁剪 + QAD 回填 | **进行中** |
-| **二** | 原生 27B Dense 支持，Dense 大改 | 稀疏注意力重排 + 结构化稀疏 + 权重共享 | 未进行 |
-| **三** | Dense 转 MoE，原生 27B 容量 | 专家拆分 + 分层卸载 + 路由预热 | 探索中 |
+KEX 是在 MOSS-Image SFT 上继续训练出来的成像模型：只替换尾部三个张量（`layers.41.proj.o`、`layers.41.proj.ffn_down`、`final_linear_video`，共 34,996,224 参数），并把每层 q/k/v 融成 `qkv`。改动集中在**最后合成层**，改变的是：
 
-### 第一阶段：Dense 改进 + 27B 转换
+- **人物重心**：髋部偏移、头部倾斜、肩线角度，站姿不是直上直下；
+- **光线取向**：暖调逆光、轮廓光贴着发丝和肩背走，海面高光更集中；
+- **材质与肤色**：皮肤高光偏暖，布料和湿发的反射更厚，暗部不死黑；
+- **画面重心**：主体通常压在黄金分割附近，太阳/海岸线让位给人物，而不是平均铺开。
 
-阶段一有一个**关键约束**：只做保权重变换。也就是说剪完之后，剩下的权重必须能直接从 27B 原模型里切出来，不需要重训主干。这样做的代价是剪枝率受限，收益是可以在一张 8 GB 卡上完成整个流程，而且每一步都可回退。
+![KEX 1.5 Peak8，1024×1024，12 步，cfg 2.5](docs/assets/kex-1024.png)
 
-四步：
+*KEX 1.5 Peak8，1024×1024，12 步，cfg 2.5，seed 20261121。*
 
-1. **层重要性排序**。不用均匀抽层。用校准集上的残差流余弦相似度和注意力熵做联合打分，保留"信息增量最大"的层。这一步决定 26 层里保哪 26 层。
-2. **FFN 收窄到 18432**。对每个 FFN 做 SVD 分解，按奇异值能量保留前 85.7%（18432/21504）的通道，其余用低秩残差补偿。
-3. **词表裁剪到 131072**。按目标语料的 token 频率保留高频词，低频词映射到最近的保留 token（不是丢弃，是合并）。这一步同时省了 0.5 GiB 权重和输出层计算。
-4. **QAD（量化感知蒸馏）回填**。用原 27B 作为教师，对剪枝后的学生做 4.0 bpw 量化感知蒸馏，恢复掉点。这一步是必需的，前三步纯剪枝会掉 8-12 分。
+1024×1024、12 步、cfg 2.5、seed 20261121 的四臂同 prompt 对照里，这个取向是可测的：三个 KEX 臂彼此 LPIPS-Alex 只有 **0.027–0.041**，而同 prompt 的原生 INT8 SFT 与 KEX 臂差 **0.23**、PSNR 只有约 24.5 dB。**构图签名来自 KEX 权重，不是量化噪声。**
 
-验收标准写死在 `configs/p1_target.json` 的 `acceptance` 段，由 `tools/eval_gate.py` 强制执行：显存 ≤ 7.0 GiB、余量 ≥ 0.45 GiB、解码 ≥ 30 tok/s。不达标不算交付。
+27B 文本编码器把条件约束再抬一档。等计算量对照（同样前向次数）：
 
-### 第二阶段：Dense 大改 + 原生 27B 支持
+| 配置 | 笔触量 `stroke_band` |
+|---|---:|
+| 9B，cfg 1.0，8 步 | 3.889 |
+| 27B，cfg 2.0，4 步 | 3.820 |
+| 9B，cfg 1.0，4 步 | 2.766 |
 
-阶段二放开"保权重"约束，允许结构改变。核心思路是**用稀疏换宽度**：27B 的参数不必全部参与每个 token 的计算，但全部存在。
+27B 跑 4 步、cfg 2.0，笔触量是 9B 跑 8 步、cfg 1.0 的 **98%**，前向次数相同。条件更强，构图更听话，细节不必靠加步数硬堆。
 
-- 把 5:1 的局部/全局混合注意力改成可学习的层间路由，让模型自己决定哪层需要全局注意力
-- FFN 引入结构化稀疏（2:4 或 4:8），配合支持稀疏的 kernel 把有效算力需求砍半
-- 权重共享：相邻层共享注意力投影，只保留独立的 FFN
+**KEX 的构图和审美是这条线的上限；KI8 1.5 的工作是别把它抹掉。** 43.34 dB / LPIPS 0.00756 就是这句话的证据。
 
-### 第三阶段：Dense 转 MoE + 原生 27B 支持
+---
 
-阶段三是最激进的：把 Dense 的 FFN 拆成专家，让 27B 的参数量全部保留在内存里，但每个 token 只激活一小部分。
+## KI8 1.5.0-rc3
 
-预算模型已经算过一条可行路径：
+### Peak8：整组编码，8.25 bit/w
 
+普通 int8 按固定间隔切格子，少数大值把量程撑开后，大量小值挤进少数格子。Peak8 以 32 个权重为一组：
+
+- 组内先存一个 5+3 bit 组头和一个 112..127 的峰值标记；
+- 其余幅值 0..111，用三 bit syndrome 选半径，最多改一个相邻码；
+- 解码端从组头和 syndrome 还原峰值与半径，不需要额外位置表。
+
+结果还是 **8 bit 值 + 0.25 bit/权重的尺度 = 8.25 bit/w**，但每组都能跟住自己的峰值。clip7 上 14 个张量的权重 SQNR：
+
+| 编解码 | bits/w | 权重 SQNR |
+|---|---:|---:|
+| e2m5 | 8.25 | 44.59 dB |
+| **Peak8** | 8.25 | **45.23 dB** |
+| KI6 v3 26B 组 | 6.5 | 35.38 dB |
+
+真实激活、真实投影输出（clip7 权重 + KEX 前向激活）：
+
+| 臂 | 输出 SQNR |
+|---|---:|
+| e2m5 权重 + BF16 激活 | 47.67 dB |
+| **Peak8 权重 + BF16 激活（W8A16）** | **48.34 dB** |
+| e2m5 权重 + e2m5 激活（W8A8） | 43.18 dB |
+| Peak8 权重 + Peak8 激活（W8A8） | 44.70 dB |
+
+### W8A16：激活不量化
+
+发行口径是 **Peak8 权重 + BF16 激活**。激活不量化，少一层 A8 舍入漂移；权重走 W32 整组解码，配专用 CUDA 内核。
+
+- `peak8-a16` 是 rc3 的正式 profile，checkpoint 的 `manifest.version` 是 `1.5.0-rc3`；
+- 装载时验证每层真的是 `("peak8", "bf16")`，不是“名字叫 A16、实际走 A8”；
+- 端到端 8 步累计误差 43.34 dB / LPIPS 0.00756，说明 W8A16 路径没有把权重优势吃掉。
+
+### CUDA 原生 W32 解码
+
+`peak_optimized.ptx` 里的 `ki8_decode_w32` 用 warp 整数指令找峰值、算奇偶校验，替代两段 shuffle 归约；列宽是 32 的倍数时每 lane 正好一个值。`ki8_select` 把候选舍入和半径选择压进一次内核发射。
+
+本机实测（4096×4096，512 tokens，rank-16 LoRA，5 次中位数）：
+
+| 路径 | 中位 |
+|---|---:|
+| e2m5 `fast` | 88.85 ms |
+| Peak8 `reference`（PyTorch） | 191.84 ms |
+| **Peak8 `auto`（原生 W32）** | **21.20 ms** |
+| Peak8 `release`（对照） | 20.63 ms |
+
+相对 e2m5 是 **4.19×**；原生 W32 与 release 在该形状下持平（21.20 vs 20.63 ms，差值在噪声内），但 `auto` 路径的输出与 reference **逐位相同**，不是近似。
+
+### 结构与显存
+
+- q/k/v 融合成 `qkv`，42 层每层少两次矩阵乘调用，权重读取从三次连续读变成一次；
+- 全模型 269 个线性层重编码，非量化张量逐位复制；8 步采样峰值 **5071 MiB**；
+- 27B 编码器由 llama.cpp 单独进程加载，编码完即关，不和 DiT 同时占 8 GB 卡。
+
+---
+
+## 安装
+
+```bash
+P="python"                     # 先激活含 torch 2.9.1+cu128 的 venv
+KI8="D:/moss-image/KI8-1.5.0-rc3"
+REPO="$(pwd)"                  # 本仓库根目录
+INSTALLER="<发行包>/install_moss.py"
+
+# 1. 应用 CUDA 内核
+git -C "$KI8" apply "$REPO/patches/ki8-1.5.0-rc3-cuda.patch"
+
+# 2. 安装并校验 W8A16
+"$P" "$INSTALLER" --comfy <COMFYUI> --yes --no-launch --ki8-root "$KI8"
 ```
-28.4B 总参数 / 8.2B 激活
-权重 7.76 GiB（专家 2.2 bpw，主体 3.0 bpw）
-显存 4.82 GiB（主体 + KV 常驻）
-内存 6.54 GiB（专家库常驻，按 token 流式读入）
-解码上限 9 tok/s
-```
 
-关键在**分层卸载**：注意力权重和 KV 常驻显存，专家权重常驻内存。每个 token 只需从内存读 2 个专家（约 0.4 GiB），按实测 19.3 GB/s 的流式读带宽，这部分约 20 ms，摊到 40 层就是 0.8 s/token —— 这就是 9 tok/s 的来源。想更快只有一个办法：**让专家读取和 GPU 计算重叠**（prefetch 下一层的专家），这是阶段三的工程核心。
+安装器会定位 `KI8-1.5.0-rc3` 树、应用补丁、备份被改文件，然后跑一次真实 `1.5.0-rc3` checkpoint 回环：
+
+- `347×511`（带尾组，token_tile 31 / output_tile 43）
+- `3072×9216`（真实投影形状）
+
+两个用例都要求 `auto` 与 `reference` **逐位相同**，并检查 `a16_decode == native-w32`；失败会还原所有改动，包括新增文件。
+
+本机校验输出：
+
+```json
+"wire_check": {
+  "backend": "peak_cuda.ptx",
+  "w32_decode": "native-w32",
+  "radius_selection": "fused",
+  "wire_elements": 216224,
+  "identical": true
+},
+"a16_checkpoint": {
+  "version": "1.5.0-rc3",
+  "cases": [
+    {"shape": [347, 511],   "weight_format": "peak8", "activation_format": "bf16", "bit_identical": true},
+    {"shape": [3072, 9216], "weight_format": "peak8", "activation_format": "bf16", "bit_identical": true}
+  ],
+  "bit_identical": true,
+  "backend": {"a16_decode": "native-w32"}
+}
+```
 
 ---
 
-## 本仓库有什么
+## 使用
+
+```bash
+P="python"                     # 先激活含 torch 2.9.1+cu128 的 venv
+KI8="D:/moss-image/KI8-1.5.0-rc3"
+
+# W8A16 硬验证
+KI8_REQUIRE_A16=1 "$P" "$KI8/run.py" check --device cuda:0 --require-a16
+
+# 单投影速度
+"$P" "$KI8/run.py" bench-speed --device cuda:0 --profile peak8-a16 \
+  --in-features 4096 --out-features 4096 --tokens 512 \
+  --token-tile 128 --output-tile 128 --iterations 5 --out work/speed_a16.json
+
+# 端到端：先跑 KEX BF16 基线（CPU，约 575 s），再跑 W8A16
+C="D:/moss-image/clip7/moss_image_clip7_bf16.safetensors"
+OUT=work; mkdir -p $OUT
+
+"$P" -I bench/kex_bf16_arms.py --arm bf16 --clip7 "$C" --ki8 "$KI8" \
+  --transformer D:/moss-image/moss-bf16/transformer \
+  --cond D:/moss-image/ComfyUI/models/cond_cache/kedaiEX1-pos.pt \
+  --out $OUT/kex_bf16/bf16 --steps 8
+
+KI8_REQUIRE_A16=1 "$P" -I bench/kex_bf16_arms.py --arm v15 --clip7 "$C" --ki8 "$KI8" \
+  --transformer D:/moss-image/moss-bf16/transformer \
+  --cond D:/moss-image/ComfyUI/models/cond_cache/kedaiEX1-pos.pt \
+  --out $OUT/kex_w8a16/v15 --steps 8 --device cuda:0
+
+# PSNR / LPIPS
+"$P" -I bench/score_psnr_lpips.py \
+  --ref $OUT/kex_bf16/bf16.npy --test $OUT/kex_w8a16/v15.npy \
+  --ref-latent $OUT/kex_bf16/bf16_latent.npy --test-latent $OUT/kex_w8a16/v15_latent.npy \
+  --out $OUT/kex_w8a16/score_v15_vs_bf16.json
+```
+
+BF16 基线在 CPU 上跑（10.16 GB 放不进 8 GB 显存），8 步约 575 s；量化臂在 `cuda:0` 上跑。
+
+---
+
+## 数据口径
+
+- 端到端：256×256 latent、8 步、seed 20261123、同噪声、同 27B 条件缓存；BF16 为 clip7 全张量，量化臂的非量化张量也全部取自 clip7。
+- LPIPS 0.1.4，Alex / Squeeze 两个 backbone；PSNR 按 8-bit RGB 计算，最大差按 0..255 计。
+- 速度：同机、同一脚本、`cuda:0`；8 步取每步耗时中位数。跨机器不直接比。
+- 1024×1024 四臂：ComfyUI，12 步，cfg 2.5，er_sde，seed 20261121，同 prompt、同噪声。
+- 单种子、单图指标只作相对参考；质量结论以多臂一致性和逐像素差值为准。
+
+---
+
+## 仓库结构
 
 ```
 MI-Prism-KedaiEX/
-├── README.md                  你在这里
-├── LICENSE-APACHE-2.0         Apache-2.0 全文（衍生权重用）
-├── NOTICE                     上游署名与修改声明（Apache §4b/§4c）
-├── configs/
-│   ├── qwen38_27b_real.json   真实基座架构（GGUF 头部实测，**以此为准**）
-│   ├── ref_27b.json           ⚠ v1 假设架构，已作废，仅留作对照
-│   ├── p1_target.json         第一阶段主目标（10.15B / 4.0bpw / 8k）⚠ 待重算
-│   └── p1_low.json            第一阶段低档目标（8.43B / 3.5bpw / 16k）⚠ 待重算
-├── docs/
-│   ├── 00-introduction-en.md  英文摘要
-│   ├── 01-introduction.md     完整介绍稿（长文，含全部推导）
-│   ├── 02-budget-frontier.md  显存/带宽前沿扫描，全部实测数字
-│   ├── 03-roadmap.md          三阶段详细计划与退出条件
-│   ├── 04-eval-protocol.md    评测协议（怎么算"更强"）
-│   ├── 05-risks.md            风险表与已知失败模式
-│   ├── 06-hardware-tiers.md   从 4090 到 1650：每档能跑多少
-│   ├── 07-capability-gains.md 性能提升从哪来（六机制，标注已验证/假设）
-│   ├── 08-architecture-correction.md  架构勘误：v1 参考架构全部作废
-│   ├── 09-licensing.md        许可证清单与 Apache-2.0 义务
-│   └── BENCHMARKS.md          本机硬件实测记录
-├── notes/decisions/           架构决策记录（4 篇 ADR）
-├── tools/
-│   ├── probe_hardware.py      实测本机 VRAM/RAM/带宽/GEMV
-│   ├── budget_model.py        参数量/显存/解码速度模型
-│   ├── eval_gate.py           部署门禁，CI 用，不达标非零退出
-│   ├── audit_docs.py          审计文档数字能否由模型复现（261 项）
-│   ├── audit_bindings.py      把 48 条文档原文行绑到模型输出
-│   ├── ffn_spectrum.py        测 FFN 奇异值谱，判定 FFN 收窄是否成立
-│   ├── gguf_peek.py           读 GGUF 头部：架构超参、许可证、张量组成
-│   └── selfcheck.py           一键跑完上面所有检查
-└── tests/
-    ├── test_budget_model.py   预算模型与门禁
-    ├── test_ffn_spectrum.py   奇异值谱测量
-    ├── test_audit_bindings.py 文档漂移必须被抓到
-    └── test_licensing.py      许可证完整性 + GGUF 头部事实
+├── README.md
+├── LICENSING-LAYERS.md        四层许可边界
+├── NOTICE                     上游署名与修改声明
+├── patches/
+│   └── ki8-1.5.0-rc3-cuda.patch   W32 解码 + W8A16 校验
+├── bench/
+│   ├── kex_bf16_arms.py       clip7 基线 / v15 W8A16 端到端采样
+│   ├── score_psnr_lpips.py    PSNR / LPIPS-Alex / LPIPS-Squeeze
+│   └── st_read.py             原样 safetensors 读取器
+├── configs/                   27B 预算模型配置
+├── docs/                      预算模型、硬件档位、评测协议、许可说明
+├── phase1/                    组件清单与哈希
+├── tools/                     预算模型、硬件探测、文档审计、许可审计
+└── tests/                     预算模型 / 文档 / 许可测试
 ```
 
-### 工具怎么用
+---
 
-```bash
-# 1. 先实测你这台机器（不要相信规格书）
-python tools/probe_hardware.py
+## 许可
 
-# 2. 看所有配置的预算
-python tools/budget_model.py
-
-# 3. 看单个杠杆的边际收益
-python tools/budget_model.py --ablation
-
-# 4. 看每 token 的时间与字节分解（"为什么是这个速度"）
-python tools/budget_model.py --explain
-
-# 5. 检查某个配置能不能部署
-python tools/eval_gate.py configs/p1_target.json
-
-# 6. 模拟另一台机器 / 假设升级（如加一条内存条）
-python tools/budget_model.py --arch p3 --set bw_host_gbps=34
-
-# 7. 审计文档（改动模型或改文档后必跑）
-python -I tools/audit_docs.py       # 261 个数字是否由模型复现
-python -I tools/audit_bindings.py   # 48 条文档原文行是否与模型输出一致
-
-# 8. 一键跑完全部检查
-python -I tools/selfcheck.py
-
-# 9. 测 FFN 奇异值谱（判定"FFN 收窄 14%"是否成立）
-python tools/ffn_spectrum.py --synthetic          # 方法自测，<1 秒
-python tools/ffn_spectrum.py --synthetic --full   # 27B 真实维度，数分钟
-
-# 10. 只跑测试
-python -I -m unittest discover -s tests -v
-```
-
-`budget_model.py` 零依赖（只用标准库）。`probe_hardware.py` 与 `ffn_spectrum.py` 需要 numpy，没有 numpy 时会明确报 `SKIPPED` / 退出码 2，不会编造数字。
-
-### 两个阶段优化方向相反（实测）
-
-带宽敏感性分析得出一个反直觉结论：
-
-| 配置 | 显存带宽 280→400 | 内存带宽 17→68 |
+| 层 | 许可 | 覆盖 |
 |---|---|---|
-| P1（全常驻） | 51.1 → **73.0**（+43%） | 51.1 → 51.1（**0%**） |
-| P3（专家在内存） | 9.4 → 9.6（+2%） | 9.4 → **30.0**（+219%） |
+| 代码 | MIT | KI8 运行时、转换器、安装器、本仓库工具 |
+| 权重 | Apache-2.0 | KEX DiT 衍生权重、GSQ 文本编码器（见 `NOTICE`） |
+| ComfyUI 补丁 | GPL-3.0 | 装入 ComfyUI 后的 `ki8_codec.py` / `ops.py` / 节点包 |
+| VAE | Apache-2.0 | `flux2-vae_small`（与 FLUX.2-small-decoder 字节一致） |
 
-**P1 的优化该全压在 GPU 侧，P3 的全压在 CPU 侧与预取。两者不可复用。**
-详见 `notes/decisions/0004-opposite-optimization-axes.md`。
-
-### 实测输出示例
-
-```
-$ python tools/budget_model.py
-config                                   palette                params active  wGiB kvGiB  vram  host tok/s  placement
-------------------------------------------------------------------------------------------------------------------------------
-27B reference (62L, hybrid 5:1, GQA 32/16) 4.5bpw/KV16/8k           27.0   27.0 14.39  3.88 19.02  0.35     1  over budget (+12.02 GiB)
-P1 target (26L, ffn 18432, vocab 128k)   4.0bpw/KV8/8k [SHIPPED]   10.2   10.2  4.89  0.81  6.45  0.35    51  resident
-P1 depth-only (26L, ffn 21504, vocab 256k) 4.0bpw/KV8/8k            12.1   12.1  5.98  0.81  7.55  0.35    13  partial (+0.55 GiB over PCIe)
-P1 fallback (32L, ffn 21504, vocab 128k) 4.5bpw/KV8/8k            13.9   13.9  7.41  1.00  9.16  0.35     4  over budget (+2.16 GiB)
-P2 width-cut (~9.3B, 40L, GQA 32/8)      3.4bpw/KV8/32k            9.3    9.3  3.83  2.50  7.08  0.35    40  partial (+0.08 GiB over PCIe)
-P3 MoE (~28B total / 8B active)          3.0bpw/KV8/32k            28.4   8.2  7.76  2.50  4.82  6.54     9  resident
-```
-
-```
-$ python tools/eval_gate.py configs/p1_target.json
-[PASS] configs/p1_target.json
-       PASS vram 6.45 GiB, headroom +0.55 GiB
-       PASS host 0.35 GiB <= 12.00 GiB
-       PASS decode 51.1 tok/s >= floor 30.0 tok/s
-```
+完整义务与文件清单见 [LICENSING-LAYERS.md](LICENSING-LAYERS.md)、[docs/10-phase1-licensing.md](docs/10-phase1-licensing.md)。
 
 ---
 
-## 模型是什么，不是什么
-
-**是**：
-
-- 一个可以复现的预算模型，输入架构、输出显存和解码速度，误差来源写清楚
-- 一套硬性验收标准，CI 拦截"看起来能跑"的配置
-- 一条从 27B 到 10B 的可执行剪枝路径，每步保权重、可回退
-- 一份诚实的失败清单（`docs/05-risks.md`）
-
-**不是**：
-
-- 不是又一个量化脚本。4bit 量化 27B 是 14.39 GiB，仍然超 7 GiB 一倍
-- 不是"用更小的模型"。参数量从 27B 掉到 10.15B 是损失，这个损失是明码标价的，不是包装成"等效"
-- 不是"精度无损"。剪枝 + 4bit 一定有损，`docs/04-eval-protocol.md` 定义怎么量化这个损失
-- 不是最终结论。现在的数字是**预算模型的预测**，不是实测推理。真实权重跑起来之前，所有 tok/s 都标为上限（ceiling）
-
----
-
-## 当前进展与下一步
-
-已完成：
-
-- 本机硬件基线实测，含笔记本特有的坑（PCIe x8、内存降频、核显占用）
-- 预算模型、奇异值谱、文档审计、许可证校验，109 个测试覆盖参数量、KV、单调性、门禁边界、CLI 契约、布局识别、文档漂移检测、GGUF 头部事实
-- 部署门禁，`configs/` 下两个配置一个 PASS 一个 INFO
-- 前沿扫描：确认"只砍层"不可行，"三杠杆叠加"可行
-
-接下来：
-
-1. **层重要性排序**：在校准集上跑残差流分析，输出 62 → 26 的保留索引表
-2. **FFN SVD 收窄**：验证 85.7% 能量保留的实际掉点
-3. **词表裁剪**：构建 131072 词表，验证合并映射不掉点
-4. **QAD 回填**：这是最重的一步，需要 27B 教师权重
-5. **端到端实测**：把 budget 模型的预测换成真实 tok/s，偏差写进 `docs/BENCHMARKS.md`
-
----
-
-## 一句话再次概括
-
-**把一个 27B 塞进 8 GB 卡，靠的不是魔法，是把三个杠杆算准，然后诚实地承认每一步掉了多少。**
+**KEX 负责好看，KI8 1.5.0-rc3 负责在 8 GB 卡上把这份好看原样跑出来。**

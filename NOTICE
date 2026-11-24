@@ -1,9 +1,36 @@
 MI-Prism-KedaiEX
-Copyright (c) 2026 MI-Prism-KedaiEX contributors
+Copyright (c) 2026 sata1921, seeds, suihan, hilo114
 
 This product includes software and model weights derived from the following
 projects. Their licenses and attributions are reproduced below as required by
 Apache License 2.0, Section 4.
+
+--------------------------------------------------------------------------------
+0. Licence layers
+--------------------------------------------------------------------------------
+
+This project is not released under a single licence. Three grants apply to what
+ships, each to a different set of artefacts. See LICENSING-LAYERS.md for the full
+mapping and tools/license_audit.py for the machine-checked version.
+
+  MIT          KI8 core, converter (adapter + scripts), installer source.
+               Copyright the four names above.
+  Apache-2.0   Modified MOSS-Image SFT DiT (KedaiEX1), the headless GSQ text
+               encoder, and the FLUX.2 small-decoder VAE. Sections 1-4 below.
+  Apache-2.0   converter refs/ tokenizer and config copies, listed separately
+               because they are verbatim upstream files and are NOT covered by
+               this project's MIT grant. Section 2b below.
+  GPL-3.0      The 27 standalone custom_nodes packages. Section 5 below.
+
+Excluded from distribution, and therefore not part of any grant above:
+  Qwen-Image-2.1 and any LoRA derived from it (Qwen Research Licence,
+  non-commercial). Kijai-derived LoRAs (no licence declared upstream). Both stay
+  on the development machine only.
+
+One file is parked rather than shipped: the FULL-size FLUX.2 decoder. It exists
+only under the FLUX non-commercial licence, so it lives in
+ComfyUI/models/vae/_noncommercial_do_not_ship/ and is not part of the pipeline.
+The pipeline uses the Apache-2.0 small decoder instead.
 
 --------------------------------------------------------------------------------
 1. Base model
@@ -34,6 +61,42 @@ Qwen3.8-27B-GGUF (UD-IQ3_S, UD-IQ4_XS)
   License: Apache License 2.0 (inherited; quantization is a derivative work)
   Source:  https://huggingface.co/unsloth/Qwen3.8-27B-GGUF
 
+Qwen3.8-27B-GSQ-RCO-GGUF (IQ3_S, mixed-precision GSQ)
+  Quantized by: ISTA DASLab (Institute of Science and Technology Austria)
+  License: Apache License 2.0 (inherited; quantization is a derivative work)
+  Source:  https://huggingface.co/ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF
+  Used as: the 27B text encoder in the phase-1 image pipeline, re-exported
+           headless with the hidden-state tap at last_rmsnorm.
+
+  Modifications by MI-Prism-KedaiEX:
+    - hidden-state tap moved to last_rmsnorm (hidden 5120)
+    - LM head and final output path removed (headless export)
+
+  License evidence: read from the GGUF KV table of the shipped file, not inferred.
+    general.license          = apache-2.0
+    general.quantized_by     = ISTA DASLab
+    general.base_model.0.url = https://huggingface.co/Qwen/Qwen3.8-27B
+
+--------------------------------------------------------------------------------
+2b. Verbatim upstream files inside the converter bundle
+--------------------------------------------------------------------------------
+
+The converter bundle ships under MIT, but its refs/ directory is not original
+work and is not covered by that grant. These files are byte-for-byte copies of
+upstream artefacts and remain under Apache License 2.0:
+
+  qwen38_tokenizer.json          12,809,320 B   from Qwen/Qwen3.8-27B
+  moss_tokenizer.json            19,989,325 B   from OpenMOSS-Team/MOSS-Image-Base
+  moss_tokenizer_config.json             15 B
+  moss_te_config.json                 2,813 B
+  moss_transformer_config.json          240 B
+  moss_vae_config.json                  838 B
+  moss_model_index.json                 412 B
+
+  License: Apache License 2.0
+  Obligation: §4a ship the licence text, §4c retain attribution. Publishing the
+  converter as "MIT" without this note would be an inaccurate grant.
+
 --------------------------------------------------------------------------------
 3. Reference image stack (not redistributed by this repository)
 --------------------------------------------------------------------------------
@@ -54,17 +117,110 @@ Qwen3.5-9B (text encoder / distillation teacher)
   Source:  https://huggingface.co/Qwen/Qwen3.5-9B
 
 --------------------------------------------------------------------------------
-4. Third-party components used at development time
+4. Image pipeline VAE — Apache-2.0 (corrected 2026-11-22)
+--------------------------------------------------------------------------------
+
+The pipeline's VAE is Apache-2.0. An earlier revision of this file said it was
+non-commercial; that was wrong, and the correction is recorded here because the
+mistake is easy to repeat.
+
+flux2-vae_small.safetensors (249,521,340 B, 251 tensors)
+  License: Apache License 2.0
+  Upstream: black-forest-labs/FLUX.2-small-decoder
+            file diffusion_pytorch_model.safetensors
+  Evidence: HF tree API reports size 249,521,340 and lfs.oid
+              d8d52ba036475f5fb07c8b435e176d3d97ebfa82f0d1a1c317f9cc1e25bd013b
+            which equals the local sha256 byte for byte, so the local file IS the
+            Apache-2.0 release. That repository's cardData.license is apache-2.0
+            and its README states both "Available under the Apache 2.0 license."
+            and, under a License heading, "This model is licensed under the
+            https://www.apache.org/licenses/LICENSE-2.0."
+  Architecture match: the local MOSS VAE config declares
+            "_class_name": "AutoencoderKLFlux2", which is exactly the class the
+            upstream README loads with
+            AutoencoderKLFlux2.from_pretrained("black-forest-labs/FLUX.2-small-decoder").
+
+  Why the earlier reading was wrong: Comfy-Org/Flux-2-Dev carries a
+  repository-level tag of flux-1-dev-non-commercial-license. That tag covers the
+  repackaged DiT and the FULL-size decoder in that repo, not this file. The same
+  bytes are published by Black Forest Labs separately under Apache-2.0, and
+  file-level provenance outranks a repackager's repo-level tag.
+
+flux2-vae.safetensors (full size, 336,213,556 B, sha256 d64f3a68...)
+  License: FLUX.1 [dev] Non-Commercial License v1.1.2
+  Status: PARKED, NOT SHIPPED. Moved to
+          ComfyUI/models/vae/_noncommercial_do_not_ship/ so ComfyUI cannot load it.
+  Why: No Apache-2.0 release of the FULL decoder exists. FLUX.2-klein publishes
+          only a DiT single-file with no separate VAE, so FLUX.2-small-decoder is
+          the only Apache-2.0 decoder BFL ships. The full decoder is available
+          only from FLUX.2-dev and the Comfy-Org repack, both non-commercial.
+  Full text: licenses/LICENSE-FLUX-NONCOMMERCIAL.md
+
+Qwen-Image-2.1 (used for KI8 1.4 validation only, NOT DISTRIBUTED)
+  License: Qwen Research License Agreement (non-commercial, §2a)
+  Source:  https://huggingface.co/Qwen/Qwen-Image-2.1
+  Scope:   This repository does not ship the model or any LoRA derived from it.
+           Benchmark numbers in the KI8 README were produced under research use.
+           Full text kept at licenses/LICENSE-QWEN-RESEARCH.txt for reference.
+
+
+--------------------------------------------------------------------------------
+5. ComfyUI host and the GPL-3.0 node packages
+--------------------------------------------------------------------------------
+
+ComfyUI 0.44.0
+  License: GNU General Public License v3.0
+  Source:  https://github.com/comfyanonymous/ComfyUI
+  Evidence: GitHub API license.spdx_id = GPL-3.0
+
+  ComfyUI is NOT redistributed by this project; users install it themselves.
+  It is listed because the installer runs against it and because its licence
+  determines the grant on anything that only executes inside it.
+
+  GPL-3.0 here applies to the STANDALONE NODE PACKAGES:
+
+    7 packages / 27 nodes, each an independent ComfyUI custom_nodes package
+      ComfyUI-KI8            3 nodes
+      ComfyUI-KI8-Triton     2 nodes
+      ComfyUI-MOSS-Cond      3 nodes
+      ComfyUI-MOSS-MoE       1 node
+      ComfyUI-MOSS-MoE16     1 node
+      ComfyUI-MOSS-NoLoRA   13 nodes
+      ComfyUI-MOSS-TE27B     4 nodes
+
+    They import the host's internals (comfy.model_management, comfy.samplers,
+    comfy.utils, comfy_api.latest) and cannot run outside ComfyUI, so those
+    packages are distributed under GPL-3.0. Section 5 of the GPL text applies;
+    the corresponding source is the package's own .py files.
+
+  Two files the installer writes are NOT part of the MIT grant either, because
+  they become modifications of GPL-3.0 code once installed:
+
+    comfy/ops.py       patched in place; the patched file is a derivative
+    comfy/ki8_codec.py placed inside ComfyUI's own comfy/ package, imports
+                       comfy.ops and comfy_kitchen.tensor
+
+  What stays MIT: the KI8 core library, the converter, the installer's own
+  source, and the project's original trained parameters. The MIT grant covers
+  those artefacts as published, not their behaviour when linked into a GPL
+  host. See docs/10-phase1-licensing.md §4 and LICENSING-LAYERS.md.
+
+--------------------------------------------------------------------------------
+6. Third-party components used at development time
 --------------------------------------------------------------------------------
 
 numpy            BSD-3-Clause
 Python           PSF-2.0
 git              GPL-2.0 (used as a tool, not linked)
 
-No GPL or AGPL code is linked into this project's distributed artifacts.
+llama.cpp        MIT   (llama-server runs the GGUF text encoder; not bundled)
+
+No GPL or AGPL code is linked into the MIT-licensed artifacts. GPL-3.0 applies
+only to the files the installer writes into a ComfyUI tree (section 4). Those are
+distributed as GPL-3.0, not as MIT, so the two grants never mix in one artefact.
 
 --------------------------------------------------------------------------------
-5. Trademark notice
+7. Trademark notice
 --------------------------------------------------------------------------------
 
 "Qwen" is a trademark of Alibaba Group. "MOSS" is a trademark of its respective

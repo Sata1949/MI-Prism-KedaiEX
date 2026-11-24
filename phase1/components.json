@@ -1,0 +1,594 @@
+{
+  "schema": "mi-prism-kedaiex/phase1-components@3",
+  "generated": "2026-11-22",
+  "revision_note": "v3: VAE licence corrected to Apache-2.0 — local flux2-vae_small is byte-identical to black-forest-labs/FLUX.2-small-decoder; the full-size decoder is non-commercial and parked. Qwen-Image-2.1, its LoRAs and the Kijai-derived LoRA are out of scope for distribution.",
+  "copyright": {
+    "holder": "sata1921, seeds, suihan, hilo114",
+    "display": "Copyright (c) 2026 sata1921, seeds, suihan, hilo114",
+    "note": "The four-person team is the MIT copyright holder for all original work in this project. sata1921 is the project owner. Individual component grants are listed per component below."
+  },
+  "note": "Phase 1 deliverable registry. Every artefact that ships from this project is listed here exactly once, with the license that actually governs it. `tools/license_audit.py` reads this file and fails the build when a row disagrees with the artifact on disk or with the upstream repository.",
+  "components": [
+    {
+      "id": "ki8-core",
+      "name": "KI8 1.4.0-rc1",
+      "kind": "code",
+      "role": "Weight codec + LoRA runtime for image DiT quantisation (W32/A128 E5F3 scale, per-projection element grid: e4m3fn / e3m4 / e2m5 / s8).",
+      "version": "1.4.0-rc1",
+      "local_path": "D:\\moss-image\\KI8-1.4.0-rc1\\KI8",
+      "path_kind": "tree",
+      "files": 75,
+      "bytes": 2635539,
+      "sha256": "beba38db5c9d28715a8e8a522e6fd87f6bc24964818c1915b05e1d4c263277b2",
+      "license": "MIT",
+      "license_file": "LICENSE",
+      "license_status": "declared",
+      "copyright": "sata1921, seeds, suihan, hilo114",
+      "derived_from": [],
+      "consumed_by": [
+        "dit-weights",
+        "installer"
+      ],
+      "notes": "Original work of the four-person team. No LICENSE file yet exists in the shipped tree; the repo-root MIT LICENSE governs it. Adding a LICENSE copy into the KI8 release directory is an open item."
+    },
+    {
+      "id": "dit-weights",
+      "name": "MI-DIT-Prism-KedaiEX1_ki8_14",
+      "kind": "weights",
+      "role": "Quantised MOSS-Image DiT, the actual image generator. 750 tensors, KI8 1.4 e2m5 codes.",
+      "version": "1.4.0-rc1",
+      "local_path": "D:\\moss-image\\ComfyUI\\models\\diffusion_models\\MI-DIT-Prism-KedaiEX1_ki8_14.safetensors",
+      "path_kind": "file",
+      "bytes": 5241594706,
+      "sha256": "3dc0b5f82a85c91e33a82696ef3e32447d01ec8af51791b7a4d8c16ecf5bd3a1",
+      "license": "Apache-2.0",
+      "license_status": "inherited",
+      "inherits_from": "OpenMOSS-Team/MOSS-Image-SFT",
+      "derived_from": [
+        {
+          "model": "OpenMOSS-Team/MOSS-Image-SFT",
+          "license": "Apache-2.0",
+          "revision": "f972bd4b4b9e3852133cc5da954d87bc32cd8fb9"
+        }
+      ],
+      "modifications": [
+        "Weight-only quantisation to KI8 1.4 (W32 group, e2m5 element grid, E5F3 block scale)",
+        "Per-projection element format chosen by W32 error minimisation (fast profile)"
+      ],
+      "consumed_by": [
+        "installer"
+      ],
+      "notes": "Apache-2.0 applies to the whole distributed file, including the parts the four-person team produced, because it is a derivative of MOSS-Image-SFT. §4b (mark modified files) and §4c (retain NOTICE) both apply. On-disk metadata carries encoder/version/format/element but NO license field, so the license must travel with the file."
+    },
+    {
+      "id": "dit-weights-unfused",
+      "name": "moss_image_sft_ki8_14_fused",
+      "kind": "weights",
+      "role": "Intermediate KI8 1.4 export of the same DiT with fused q/k/v. Kept for comparison, not used by the installer workflow.",
+      "version": "1.4.0-rc1",
+      "local_path": "D:\\moss-image\\ComfyUI\\models\\diffusion_models\\moss_image_sft_ki8_14_fused.safetensors",
+      "path_kind": "file",
+      "bytes": 5561121456,
+      "sha256": "5b41fcfedca504d78641a07637d77dc4197ff574abae7e6d1aba81123e83a339",
+      "license": "Apache-2.0",
+      "license_status": "inherited",
+      "inherits_from": "OpenMOSS-Team/MOSS-Image-SFT",
+      "derived_from": [
+        {
+          "model": "OpenMOSS-Team/MOSS-Image-SFT",
+          "license": "Apache-2.0",
+          "revision": "f972bd4b4b9e3852133cc5da954d87bc32cd8fb9"
+        }
+      ],
+      "modifications": [
+        "KI8 1.4 quantisation from bf16 MOSSImageTransformer",
+        "Unfused q/k/v attention layout"
+      ],
+      "consumed_by": [],
+      "notes": "Not part of the shipped five. Registered so a future audit does not mistake it for a separate upstream model."
+    },
+    {
+      "id": "converter",
+      "name": "moss_converter_24576 bundle (KedaiEX1-Adapter)",
+      "kind": "weights+code",
+      "role": "5120 -> 4096 MLP adapter that projects Qwen3.8-27B last_rmsnorm features into MOSS-Image conditioning space, plus the training and rendering scripts that produced it.",
+      "version": "e2e_24576, step 900/900",
+      "local_path": "D:\\moss-image\\moss_converter_24576_bundle_20261117",
+      "path_kind": "tree",
+      "files": 37,
+      "bytes": 662600769,
+      "sha256": "9df6e7e8fae5caafefb9861e8107fae1db740c5082872b4c39cc8683eea158cb",
+      "license": "MIT",
+      "license_file": "LICENSE",
+      "license_status": "declared",
+      "copyright": "sata1921, seeds, suihan, hilo114",
+      "derived_from": [],
+      "upstream_inputs": [
+        {
+          "model": "Qwen/Qwen3.8-27B",
+          "license": "Apache-2.0",
+          "use": "teacher/student features at training time; no weights redistributed in this bundle"
+        },
+        {
+          "model": "OpenMOSS-Team/MOSS-Image-SFT",
+          "license": "Apache-2.0",
+          "use": "target conditioning space"
+        }
+      ],
+      "consumed_by": [
+        "installer"
+      ],
+      "notes": "The adapter weights themselves are original trained parameters (14 tensors, 23,081,985 trainable). They were trained against two Apache-2.0 models but contain neither model's weights, so MIT applies to the adapter as an original work. The bundle's refs/ directory does contain tokenizer and config files copied from the upstream models — those remain Apache-2.0 and are flagged separately as `converter-refs`."
+    },
+    {
+      "id": "converter-refs",
+      "name": "converter refs/ (tokenizer + configs)",
+      "kind": "config",
+      "role": "Tokenizer and architecture config snapshots needed to reproduce the converter training run.",
+      "version": "as of 2026-11-17",
+      "local_path": "D:\\moss-image\\moss_converter_24576_bundle_20261117\\refs",
+      "path_kind": "tree",
+      "files": 7,
+      "bytes": 32802963,
+      "sha256": "edaf2c59292647af5bb10fcf4601df557b7e842f1f151782ca6e5e8d2ddb2c5d",
+      "license": "Apache-2.0",
+      "license_status": "inherited-separate",
+      "derived_from": [
+        {
+          "model": "Qwen/Qwen3.8-27B",
+          "license": "Apache-2.0",
+          "files": [
+            "qwen38_tokenizer.json"
+          ]
+        },
+        {
+          "model": "OpenMOSS-Team/MOSS-Image-Base",
+          "license": "Apache-2.0",
+          "files": [
+            "moss_tokenizer.json",
+            "moss_tokenizer_config.json",
+            "moss_te_config.json",
+            "moss_transformer_config.json",
+            "moss_vae_config.json",
+            "moss_model_index.json"
+          ]
+        }
+      ],
+      "modifications": [
+        "None — verbatim copies"
+      ],
+      "consumed_by": [
+        "converter"
+      ],
+      "notes": "SEPARATE ENTRY, deliberately. These 7 files are verbatim upstream copies and are NOT covered by this project's MIT grant even though they sit inside a MIT-labelled bundle. Apache-2.0 §4a/§4c apply: ship the license text and keep attribution. Publishing the converter bundle must call this out."
+    },
+    {
+      "id": "gsq-te",
+      "name": "enc27b_gsq_rco_iq3s_headless.gguf",
+      "kind": "weights",
+      "role": "Qwen3.8-27B text encoder for MOSS-Image conditioning. GSQ-RCO IQ3_S base, re-exported headless with the tap moved to last_rmsnorm (hidden 5120).",
+      "version": "GSQ-RCO IQ3_S, headless export",
+      "local_path": "D:\\moss-image\\moss27b\\models\\enc27b_gsq_rco_iq3s_headless.gguf",
+      "path_kind": "file",
+      "bytes": 11056384896,
+      "sha256": "0758183b9990a9d482808c64c36d7c268a30db3020ce95b43dafb28ea6569ed0",
+      "license": "Apache-2.0",
+      "license_status": "verified-in-artifact",
+      "license_evidence": "GGUF header KV: general.license = apache-2.0; general.quantized_by = ISTA DASLab; general.base_model.0.repo_url = https://huggingface.co/Qwen/Qwen3.8-27B",
+      "derived_from": [
+        {
+          "model": "ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF",
+          "license": "Apache-2.0",
+          "note": "HF API cardData.license = apache-2.0"
+        },
+        {
+          "model": "Qwen/Qwen3.8-27B",
+          "license": "Apache-2.0"
+        }
+      ],
+      "modifications": [
+        "Re-exported with the hidden-state tap at last_rmsnorm instead of the default final layer",
+        "Head removed (headless): the LM head and final norm output path are not used"
+      ],
+      "consumed_by": [
+        "installer"
+      ],
+      "notes": "License read from the GGUF KV table itself, not inferred — tools/gguf_peek.py can reproduce this without loading 11 GiB of weights. This is the strongest evidence class in the whole registry."
+    },
+    {
+      "id": "installer",
+      "name": "MOSS-Image_KI8_安装包",
+      "kind": "code",
+      "role": "Eight-step installer: hardware gate, ComfyUI discovery, payload verification, dependency install, model asset preflight, node deployment, launch, workflow smoke test. Paired uninstaller and branch test suite.",
+      "version": "2026-11-22 build (Apache-2.0 small decoder VAE)",
+      "local_path": "D:\\moss-image\\kedaiEX1_20261122\\pkg\\MOSS-Image_KI8_安装包",
+      "path_kind": "tree",
+      "files": 32,
+      "bytes": 466271,
+      "sha256": "deb6518390ab9f9a6caec4cf70c5c90fb4ac569db8bb0fa284ee22040cd535b0",
+      "license": "MIT",
+      "license_file": "LICENSE",
+      "license_status": "declared",
+      "copyright": "sata1921, seeds, suihan, hilo114",
+      "derived_from": [],
+      "consumed_by": [],
+      "notes": "Original installer code, MIT. BUT it writes into a GPL-3.0 host — see the `comfyui-host` component and docs/10-phase1-licensing.md §4. The installer's own source stays MIT; the patched comfy/ops.py it produces is a modification of GPL-3.0 code and must be distributed under GPL-3.0 if distributed at all."
+    },
+    {
+      "id": "comfyui-host",
+      "name": "ComfyUI 0.44.0",
+      "kind": "host",
+      "role": "Execution host. The installer patches comfy/ops.py in place and drops comfy/ki8_codec.py into the comfy/ package.",
+      "version": "0.44.0",
+      "local_path": "D:\\moss-image\\ComfyUI",
+      "path_kind": "external",
+      "license": "GPL-3.0",
+      "license_status": "verified-upstream",
+      "license_evidence": "GitHub API repos/comfyanonymous/ComfyUI → license.spdx_id = GPL-3.0; local ComfyUI/LICENSE is the GPL-3.0 text",
+      "consumed_by": [
+        "installer"
+      ],
+      "notes": "NOT redistributed by this project. Users install ComfyUI themselves. The license matters because the installer creates a derivative of comfy/ops.py in the user's tree."
+    },
+    {
+      "id": "comfyui-ki8-codec",
+      "name": "comfy/ki8_codec.py (as installed)",
+      "kind": "code",
+      "role": "The KI8 codec after it is placed inside ComfyUI's own comfy/ package and wired into ops.py's loader and saver.",
+      "license": "GPL-3.0",
+      "license_status": "combined-work",
+      "derived_from": [
+        {
+          "component": "ki8-core",
+          "license": "MIT",
+          "note": "original code, MIT by the four-person team"
+        },
+        {
+          "component": "comfyui-host",
+          "license": "GPL-3.0",
+          "note": "placed inside comfy/, imports comfy.ops and comfy_kitchen.tensor"
+        }
+      ],
+      "notes": "MIT-in / GPL-out. Any distributed ComfyUI tree containing this file is a GPL-3.0 combined work regardless of the file's own MIT origin. Shipping it standalone (outside a ComfyUI tree) as part of an MIT bundle is fine; shipping a patched ComfyUI is not."
+    },
+    {
+      "id": "comfyui-nodes",
+      "name": "custom_nodes/* (7 standalone packages)",
+      "kind": "code",
+      "role": "KI8, KI8-Triton, MOSS-Cond, MOSS-MoE, MOSS-MoE16, MOSS-NoLoRA, MOSS-TE27B — 27 nodes total.",
+      "license": "GPL-3.0",
+      "license_status": "combined-work",
+      "derived_from": [
+        {
+          "component": "installer",
+          "license": "MIT",
+          "note": "original code written against the ComfyUI node API"
+        },
+        {
+          "component": "comfyui-host",
+          "license": "GPL-3.0",
+          "note": "import comfy.* and comfy_api.latest, load only inside ComfyUI"
+        }
+      ],
+      "notes": "GPL-3.0 on purpose, not by accident. These are classic ComfyUI plugins: they import the host's internal modules (comfy.model_management, comfy.samplers, comfy.utils, comfy_api.latest). Distribution of the packages themselves is GPL-3.0. Each package needs an SPDX header."
+    },
+    {
+      "id": "flux2-vae",
+      "name": "flux2-vae_small.safetensors (FLUX.2 small decoder)",
+      "kind": "weights",
+      "role": "VAE that decodes MOSS-Image latents to RGB. Byte-identical to the Apache-2.0 FLUX.2 small decoder released by Black Forest Labs.",
+      "local_path": "D:\\moss-image\\ComfyUI\\models\\vae\\flux2-vae_small.safetensors",
+      "path_kind": "file",
+      "bytes": 249521340,
+      "sha256": "d8d52ba036475f5fb07c8b435e176d3d97ebfa82f0d1a1c317f9cc1e25bd013b",
+      "license": "Apache-2.0",
+      "license_status": "verified-in-artifact",
+      "license_evidence": "Byte-identical to black-forest-labs/FLUX.2-small-decoder/diffusion_pytorch_model.safetensors: HF tree API reports size 249,521,340 and lfs.oid d8d52ba036475f5fb07c8b435e176d3d97ebfa82f0d1a1c317f9cc1e25bd013b, which equals the local sha256 exactly. That repo's cardData.license is 'apache-2.0' and its README states 'This model is licensed under the https://www.apache.org/licenses/LICENSE-2.0.' and 'Available under the Apache 2.0 license.'",
+      "derived_from": [
+        {
+          "model": "black-forest-labs/FLUX.2-small-decoder",
+          "license": "Apache-2.0",
+          "sha": "a3efc24f613ef42d9428af62fdbd6f5fd8856c4a",
+          "file": "diffusion_pytorch_model.safetensors"
+        }
+      ],
+      "modifications": [
+        "None — verbatim upstream file, byte for byte"
+      ],
+      "notes": "CORRECTED 2026-11-22. The earlier finding (FLUX non-commercial) was based on the Comfy-Org/Flux-2-Dev REPOSITORY-level license tag. That tag does not govern this file: the same bytes are published separately by Black Forest Labs as FLUX.2-small-decoder under Apache-2.0, with the Apache grant stated in the README. File-level provenance beats a repackager's repo-level tag.",
+      "version": "FLUX.2 small decoder"
+    },
+    {
+      "id": "flux2-vae-small",
+      "name": "flux2-vae.safetensors (full decoder, parked, do not ship)",
+      "kind": "weights",
+      "role": "Full-size FLUX.2 decoder. Parked outside the model path because it exists only from non-commercial upstreams. Not used by the pipeline.",
+      "local_path": "D:\\moss-image\\ComfyUI\\models\\vae\\_noncommercial_do_not_ship\\flux2-vae.safetensors",
+      "path_kind": "file",
+      "bytes": 336213556,
+      "sha256": "d64f3a68e1cc4f9f4e29b6e0da38a0204fe9a49f2d4053f0ec1fa1ca02f9c4b5",
+      "license": "FLUX.1-dev-Non-Commercial",
+      "license_status": "verified-upstream",
+      "derived_from": [
+        {
+          "model": "Comfy-Org/Flux-2-Dev",
+          "license": "flux-1-dev-non-commercial-license"
+        }
+      ],
+      "notes": "This is the file that must NOT ship. Both official sources (black-forest-labs/FLUX.2-dev and Comfy-Org/Flux-2-Dev) are non-commercial, and no Apache-2.0 release of the FULL decoder exists: FLUX.2-klein ships only a DiT single-file with no separate VAE, so FLUX.2-small-decoder is the only Apache-2.0 decoder BFL publishes. Moved to _noncommercial_do_not_ship/ on 2026-11-22.",
+      "version": "full size FLUX.2 decoder"
+    },
+    {
+      "id": "qwen-image-21",
+      "name": "Qwen-Image-2.1",
+      "kind": "weights",
+      "role": "Second image model that KI8 1.4 is validated against (2 real projections, +10.03 dB SQNR). Not part of the shipped MOSS pipeline.",
+      "license": "Qwen-Research-License",
+      "license_status": "verified-upstream",
+      "license_evidence": "HF API cardData.license = other, license_name = qwen-research; LICENSE text pulled and stored at licenses/LICENSE-QWEN-RESEARCH.txt",
+      "derived_from": [
+        {
+          "model": "Qwen/Qwen-Image-2.1",
+          "license": "Qwen Research License Agreement",
+          "revision": "d26bb61231c349cf6b7896fa83353113880e1ba3"
+        }
+      ],
+      "notes": "Non-commercial only (§2a). The KI8 README cites Qwen-Image-2.1 benchmarks and the local box carries Qwen-Image-2.1 LoRAs. Neither the model nor its LoRAs may ship with a commercial release, and any published benchmark that implies a commercial product is a misrepresentation. NOT SHIPPED — repository does not distribute this.",
+      "shipped": false
+    },
+    {
+      "id": "qwen-image-loras",
+      "name": "Qwen-Image-2.1 LoRAs (local)",
+      "kind": "weights",
+      "role": "Style/speed adapters used during KI8 1.4 validation on Qwen-Image-2.1.",
+      "license": "Qwen-Research-License + per-LoRA terms",
+      "license_status": "unresolved",
+      "derived_from": [
+        {
+          "model": "Qwen/Qwen-Image-2.1",
+          "license": "Qwen Research License Agreement"
+        },
+        {
+          "model": "isHeSatoshi/Qwen-Image-2.1-turbo-v0.2.1-6step-lora-r128",
+          "license": "other (license tag only, no name)",
+          "revision": "18b60ade22984387a70fa87c43a2dcbec8a3f8a2"
+        }
+      ],
+      "notes": "LoRAs inherit the base model's non-commercial restriction, and the turbo LoRA repo declares only `license: other` with no resolvable name. Two of the local files (qwen21_nsfw_genitalia_fix, Qwen-Image-2.1-Lightning-4steps) have no identifiable upstream at all. Never ship these. NOT SHIPPED — repository does not distribute this.",
+      "shipped": false
+    },
+    {
+      "id": "moss-loras",
+      "name": "MOSS-Image LoRAs (local)",
+      "kind": "weights",
+      "role": "Speed and style adapters for the MOSS-Image pipeline.",
+      "license": "mixed",
+      "license_status": "mixed",
+      "derived_from": [
+        {
+          "model": "OpenMOSS-Team/MOSS-Image-SFT",
+          "license": "Apache-2.0"
+        },
+        {
+          "model": "akhaliq/MOSS-Image-SFT-4-steps",
+          "license": "Apache-2.0",
+          "note": "HF API verified"
+        },
+        {
+          "model": "Kijai/MOSS-image_experimental",
+          "license": "unstated",
+          "note": "HF API cardData.license = null"
+        },
+        {
+          "model": "local training",
+          "license": "MIT",
+          "copyright": "sata1921, seeds, suihan, hilo114",
+          "note": "moss_12step_turbo_v5/v8/v9 and moss_image_edit are original team work"
+        }
+      ],
+      "notes": "Split by provenance, not lumped: akhaliq's 4-step LoRA and the team's own turbo/edit LoRAs are fine under Apache-2.0 / MIT respectively. Kijai/MOSS-image_experimental declares no license at all, so moss_image_sft_4_steps_lora_v2_600_avg_rank_72_bf16 has NO grant — default copyright applies. Do not ship that one file. NOT SHIPPED — repository does not distribute this.",
+      "shipped": false
+    },
+    {
+      "id": "llama-cpp",
+      "name": "llama.cpp CUDA build (llama-server)",
+      "kind": "binary",
+      "role": "Runs the GGUF text encoder. Required at install time, not bundled.",
+      "license": "MIT",
+      "license_status": "verified-upstream",
+      "license_evidence": "GitHub API repos/ggml-org/llama.cpp → license.spdx_id = MIT",
+      "notes": "MIT. Binary redistribution requires the license text and copyright notice. Not shipped in the installer package."
+    },
+    {
+      "id": "third-party-libs",
+      "name": "Runtime dependencies",
+      "kind": "dependency",
+      "role": "Installed by pip at setup time; not vendored.",
+      "license": null,
+      "license_set": [
+        "BSD-3-Clause",
+        "Apache-2.0",
+        "MIT-CMU",
+        "MIT"
+      ],
+      "license_status": "verified-upstream",
+      "packages": [
+        {
+          "name": "torch",
+          "license": "BSD-3-Clause"
+        },
+        {
+          "name": "numpy",
+          "license": "BSD-3-Clause"
+        },
+        {
+          "name": "safetensors",
+          "license": "Apache-2.0"
+        },
+        {
+          "name": "tokenizers",
+          "license": "Apache-2.0"
+        },
+        {
+          "name": "transformers",
+          "license": "Apache-2.0"
+        },
+        {
+          "name": "diffusers",
+          "license": "Apache-2.0"
+        },
+        {
+          "name": "accelerate",
+          "license": "Apache-2.0"
+        },
+        {
+          "name": "huggingface-hub",
+          "license": "Apache-2.0"
+        },
+        {
+          "name": "Pillow",
+          "license": "MIT-CMU"
+        },
+        {
+          "name": "psutil",
+          "license": "BSD-3-Clause"
+        },
+        {
+          "name": "pytest",
+          "license": "MIT"
+        },
+        {
+          "name": "triton",
+          "license": "MIT"
+        }
+      ],
+      "notes": "All permissive. No copyleft at the dependency layer. Listed so the audit can assert nothing new crept in."
+    }
+  ],
+  "license_layers": [
+    {
+      "layer": "MIT",
+      "applies_to": [
+        "ki8-core",
+        "converter",
+        "installer"
+      ],
+      "copyright": "sata1921, seeds, suihan, hilo114",
+      "commercial": true
+    },
+    {
+      "layer": "Apache-2.0",
+      "applies_to": [
+        "dit-weights",
+        "dit-weights-unfused",
+        "gsq-te",
+        "flux2-vae"
+      ],
+      "note": "Modified MOSS-Image SFT DiT (KedaiEX1), GSQ text encoder, and the FLUX.2 small decoder VAE",
+      "commercial": true
+    },
+    {
+      "layer": "Apache-2.0 (separate entry)",
+      "applies_to": [
+        "converter-refs"
+      ],
+      "note": "Verbatim upstream tokenizer/config copies inside the converter bundle. Not covered by the project MIT grant.",
+      "commercial": true
+    },
+    {
+      "layer": "GPL-3.0",
+      "applies_to": [
+        "comfyui-nodes"
+      ],
+      "note": "Standalone node packages only.",
+      "commercial": true
+    },
+    {
+      "layer": "Not distributed",
+      "applies_to": [
+        "qwen-image-21",
+        "qwen-image-loras",
+        "moss-loras"
+      ],
+      "note": "Reserved for local use. Qwen-Image-2.1 is research-licence only and the Kijai-derived LoRA has no grant, so neither may ship. Excluded by scope.",
+      "commercial": null
+    },
+    {
+      "layer": "Non-commercial (parked, not shipped)",
+      "applies_to": [
+        "flux2-vae-small"
+      ],
+      "note": "The full-size FLUX.2 decoder. No Apache-2.0 release exists for it, so it is moved to models/vae/_noncommercial_do_not_ship/ and left out of the pipeline.",
+      "commercial": false
+    }
+  ],
+  "conflicts": [
+    {
+      "id": "C1",
+      "severity": "resolved",
+      "components": [
+        "flux2-vae-small"
+      ],
+      "summary": "RESOLVED 2026-11-22. The pipeline's VAE is flux2-vae_small.safetensors, which is byte-identical to black-forest-labs/FLUX.2-small-decoder/diffusion_pytorch_model.safetensors and is Apache-2.0. The non-commercial constraint applies only to the full-size decoder, which is parked outside the model path and not shipped. Commercial use of the assembled pipeline is therefore no longer blocked by the VAE.",
+      "options": [
+        "DONE: use flux2-vae_small.safetensors (Apache-2.0, byte-identical to BFL FLUX.2-small-decoder)",
+        "Keep the full-size decoder parked; it is non-commercial and has no Apache-2.0 release"
+      ],
+      "resolution": "Ship the small decoder (Apache-2.0). Never ship flux2-vae.safetensors; it is now at models/vae/_noncommercial_do_not_ship/."
+    },
+    {
+      "id": "C2",
+      "severity": "blocking-redistribution",
+      "components": [
+        "comfyui-host",
+        "comfyui-ki8-codec",
+        "comfyui-nodes"
+      ],
+      "summary": "The installer creates a GPL-3.0 derivative by patching comfy/ops.py and by shipping nodes that import comfy internals. The bundle is advertised as MIT.",
+      "options": [
+        "Split the release: MIT for the standalone artifacts, GPL-3.0 for anything that only runs inside ComfyUI",
+        "Relabel the installer payload as GPL-3.0 and stop claiming the whole bundle is MIT",
+        "Keep the installer as a tool that fetches the GPL payload at runtime rather than embedding it"
+      ]
+    },
+    {
+      "id": "C3",
+      "severity": "resolved",
+      "components": [
+        "qwen-image-21",
+        "qwen-image-loras"
+      ],
+      "summary": "RESOLVED 2026-11-22 by scope: the repository does not distribute Qwen-Image-2.1 or any LoRA derived from it. The model is used only for local KI8 validation, and its benchmark numbers stay in the docs as research-use measurements.",
+      "options": [
+        "DONE: exclude Qwen-Image-2.1 and its LoRAs from the repository",
+        "If re-added later, the Qwen Research License non-commercial terms apply in full"
+      ],
+      "resolution": "Not shipped. Qwen-Image-2.1 and its LoRAs stay local-only."
+    },
+    {
+      "id": "C4",
+      "severity": "resolved",
+      "components": [
+        "moss-loras"
+      ],
+      "summary": "RESOLVED 2026-11-22 by scope: the repository does not distribute the Kijai-derived moss_image_sft_4_steps_lora_v2 file. Locally trained turbo/edit LoRAs are MIT and may ship.",
+      "options": [
+        "DONE: exclude the Kijai-derived LoRA from the repository",
+        "Team-trained LoRAs (turbo v5/v8/v9, edit r64) are MIT and may ship"
+      ],
+      "resolution": "Not shipped. Only team-trained LoRAs are eligible for distribution."
+    },
+    {
+      "id": "C5",
+      "severity": "documentation",
+      "components": [
+        "gsq-te"
+      ],
+      "summary": "docs/09-licensing.md and the project memory both describe the base as Qwen3.8-27B at Apache-2.0 and stop there. The GSQ-RCO quantiser (ISTA DASLab) is a separate upstream that must be named in NOTICE, and the existing NOTICE named Unsloth instead.",
+      "options": [
+        "Add ISTA DASLab to NOTICE §2 alongside Unsloth — DONE 2026-11-22",
+        "Drop the Unsloth row if the UD-IQ3_S file is never used in the shipped pipeline"
+      ]
+    }
+  ]
+}

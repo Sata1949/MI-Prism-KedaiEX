@@ -1,0 +1,2039 @@
+diff --git a/.gitignore b/.gitignore
+new file mode 100644
+index 0000000..7a60b85
+--- /dev/null
++++ b/.gitignore
+@@ -0,0 +1,2 @@
++__pycache__/
++*.pyc
+diff --git a/ki8_lora/cuda_peak.py b/ki8_lora/cuda_peak.py
+index d39c7f7..139f324 100644
+--- a/ki8_lora/cuda_peak.py
++++ b/ki8_lora/cuda_peak.py
+@@ -65,17 +65,51 @@ class _Module:
+             self.decode_luts = {g: engines.decode_table(g, device) for g in (32, 128)}
+             self.enc_luts = {g: engines.encode_tables(g, device) for g in (32, 128)}
+             self._verify()
++            self._load_optimized()
+         except Exception:
+             # Cold-start validation has synchronized the launch or surfaced its error.
+             api.cuModuleUnload(self.handle)
+             raise
+ 
++    def _load_optimized(self):
++        # Keep the release image for comparisons and independent fallbacks.
++        checks = {"ki8_decode_w32": self._verify_w32, "ki8_select": self._verify_select}
++        self.optimization_reasons = {}
++        handle = c.c_void_p()
++        try:
++            blob = c.create_string_buffer((engines.NATIVE / "peak_optimized.ptx").read_bytes())
++            _check(self.api, self.api.cuModuleLoadData(c.byref(handle), blob))
++        except (OSError, RuntimeError) as exc:
++            self.optimization_reasons = dict.fromkeys(checks, str(exc))
++            return
++        for name, verify in checks.items():
++            fn = c.c_void_p()
++            try:
++                _check(self.api, self.api.cuModuleGetFunction(c.byref(fn), handle, name.encode()))
++                self.functions[name] = fn
++                verify()
++            except RuntimeError as exc:
++                self.functions.pop(name, None)
++                self.optimization_reasons[name] = str(exc)
++        if any(name in self.functions for name in checks):
++            self.optimized_handle = handle
++        else:
++            self.api.cuModuleUnload(handle)
++
++    def require_a16(self):
++        """Hard contract for the RC3 W8A16 profile: weights are Peak8/W32 and
++        must be decoded by the optimized integer kernel, never by a fallback."""
++        if "ki8_decode_w32" not in self.functions:
++            reason = self.optimization_reasons.get("ki8_decode_w32") or "peak_optimized.ptx unavailable"
++            raise RuntimeError(f"KI8 W8A16 needs the optimized W32 decoder: {reason}")
++
+     def launch(self, name, tensors, integers, groups):
+         if not groups:
+             return
+         with torch.cuda.device(self.device):
+             stream = torch.cuda.current_stream(self.device)
+-            args = [c.c_void_p(t.data_ptr()) for t in tensors] + [c.c_int(v) for v in integers]
++            args = [c.c_void_p(t.data_ptr() if t is not None else 0) for t in tensors]
++            args.extend(c.c_int(v) for v in integers)
+             addresses = (c.c_void_p * len(args))(*(c.addressof(a) for a in args))
+             _check(
+                 self.api,
+@@ -94,13 +128,20 @@ class _Module:
+                 ),
+             )
+             for t in tensors:
+-                t.record_stream(stream)
++                if t is not None:
++                    t.record_stream(stream)
+ 
+     def unpack(self, codes, heads, group):
++        name = "ki8_decode_bf16"
++        if group == 32 and engines.policy() == "auto" and "ki8_decode_w32" in self.functions:
++            name = "ki8_decode_w32"
++        return self._unpack(codes, heads, group, name)
++
++    def _unpack(self, codes, heads, group, name):
+         out = torch.empty_like(codes, dtype=torch.bfloat16)
+         cols = codes.shape[-1]
+         self.launch(
+-            "ki8_decode_bf16",
++            name,
+             (codes, heads, out, self.decode_luts[group]),
+             (codes.numel() // cols, cols, group),
+             heads.numel(),
+@@ -118,6 +159,24 @@ class _Module:
+         )
+         return q, errors
+ 
++    def select(self, values, pos, group, modes, scores=None):
++        # Oversized sums use a split TensorIterator. Keep them on the RC2 path.
++        if "ki8_select" not in self.functions or values.numel() > (2**31 - 1) // 4:
++            return None
++        size = values.shape[-1]
++        groups = pos.numel()
++        q = torch.empty_like(values, dtype=torch.uint8, memory_format=torch.contiguous_format)
++        if groups:
++            lanes = 1 << (size.bit_length() - 1)
++            height = min(1 << (groups.bit_length() - 1), 512 // min(lanes, 32))
++            self.launch(
++                "ki8_select",
++                (values.contiguous(), pos.contiguous(), *self.enc_luts[group], q, scores),
++                (groups, size, modes, min(lanes, 512 // height)),
++                groups,
++            )
++        return q
++
+     @torch.inference_mode()
+     def _verify(self):
+         from . import peak
+@@ -150,6 +209,48 @@ class _Module:
+                     if not torch.equal(q, ref.byte()) or not torch.equal(squared, err):
+                         raise RuntimeError("Peak8 radius candidate verification failed")
+ 
++    @torch.inference_mode()
++    def _verify_w32(self):
++        rng = torch.Generator().manual_seed(150330)
++        heads = torch.arange(256, device=self.device, dtype=torch.uint8)[:, None]
++        for width in (1, 3, 7, 17, 32, 33, 95, 128):
++            codes = torch.randint(0, 256, (256, width), dtype=torch.uint8, generator=rng)
++            # Rows with no marks use the wide header, including signed zero.
++            codes[::2] = torch.where((codes[::2] & 127) < 112, codes[::2], codes[::2] & 128)
++            codes = codes.to(self.device)
++            scales = heads.expand(-1, (width + 31) // 32).contiguous()
++            reference = self._unpack(codes, scales, 32, "ki8_decode_bf16")
++            candidate = self._unpack(codes, scales, 32, "ki8_decode_w32")
++            if not torch.equal(reference.view(torch.int16), candidate.view(torch.int16)):
++                raise RuntimeError(f"Peak8 W32 decoder differs from the release decoder at width {width}")
++
++    @torch.inference_mode()
++    def _verify_select(self):
++        # Exercise the small-tail, one-warp and wider PyTorch FP32 sum layouts.
++        # Fractional samples in each radius produce distinguishable sum orders.
++        rng = torch.Generator().manual_seed(150329)
++        for group, size, count in (
++            (32, 1, 7), (32, 3, 61), (32, 17, 19), (32, 32, 65),
++            (128, 63, 3), (128, 97, 9), (128, 128, 1), (128, 128, 31),
++        ):
++            values = torch.rand(count, size, generator=rng)
++            values[::2] *= 0.28
++            values[:, -1] = 1
++            values = values.to(self.device)
++            pos = values.argmax(-1, keepdim=True)
++            modes = 1 << min(3, size.bit_length() - 1)
++            picks = [self.candidate(values, pos, group, mode) for mode in range(modes)]
++            expected = torch.cat([squared.sum(-1, keepdim=True) for _, squared in picks], -1)
++            mode = expected.argmin(-1)
++            ref = torch.stack([q for q, _ in picks], 1)[
++                torch.arange(count, device=values.device), mode
++            ]
++            scores = torch.empty_like(expected)
++            all_modes = self.select(values, pos, group, modes, scores)
++            pruned = self.select(values, pos, group, modes)
++            if not (torch.equal(scores, expected) and torch.equal(all_modes, ref) and torch.equal(pruned, ref)):
++                raise RuntimeError(f"Peak8 fused selection disagrees with the release reduction at size {size}")
++
+ 
+ def module(device):
+     device = torch.device(device)
+@@ -184,10 +285,21 @@ def module(device):
+             return None
+ 
+ 
+-def unpack(codes, heads, group):
++def unpack(codes, heads, group, require_w32=False):
+     if max(codes.shape[-1], codes.numel() // codes.shape[-1], heads.numel()) > 2147483647:
+         return None
+     engine = module(codes.device)
++    if (require_w32 or (engines.require_a16() and engines.policy() != "release")) and group == 32:
++        # RC3 W8A16 keeps activations in BF16 and only codes the weights. Those
++        # weights are always 32-wide, so there is exactly one legal decode path.
++        # Group-128 inputs still belong to the A8 codec and keep the release path.
++        if engine is None:
++            raise RuntimeError(
++                "KI8 W8A16 requires the CUDA Peak8 decoder; "
++                + str(_reasons.get(torch.device(codes.device), "module unavailable"))
++            )
++        engine.require_a16()
++        return engine._unpack(codes, heads, 32, "ki8_decode_w32")
+     return engine.unpack(codes, heads, group) if engine else None
+ 
+ 
+@@ -195,8 +307,22 @@ def info(device):
+     with torch.cuda.device(device):
+         dev = torch.device("cuda", torch.cuda.current_device())
+         engine = module(dev)
++        policy = engines.policy()
++        selection = "pytorch"
++        decode = "pytorch"
++        reasons = {}
++        if engine is not None:
++            reasons = engine.optimization_reasons
++            selection = "fused" if policy == "auto" and "ki8_select" in engine.functions else "per-radius"
++            decode = "native-w32" if policy == "auto" and "ki8_decode_w32" in engine.functions else "release"
+         return {
+             "backend": engine.filename if engine else "PyTorch",
+-            "policy": engines.policy(),
++            "policy": policy,
+             "fallback_reason": _reasons.get(dev),
++            "w32_decode": decode,
++            "w32_fallback_reason": reasons.get("ki8_decode_w32"),
++            "a16_decode": decode if engine else "pytorch",
++            "a16_fallback_reason": reasons.get("ki8_decode_w32"),
++            "radius_selection": selection,
++            "selection_fallback_reason": reasons.get("ki8_select"),
+         }
+diff --git a/ki8_lora/engines.py b/ki8_lora/engines.py
+index 8d0da6b..6371f12 100644
+--- a/ki8_lora/engines.py
++++ b/ki8_lora/engines.py
+@@ -12,19 +12,25 @@ import torch
+ NATIVE = Path(__file__).with_name("native")
+ _override = ContextVar("ki8_engine", default=None)
+ _default = os.environ.get("KI8_ENGINE", "auto").lower()
++_POLICIES = ("auto", "reference", "release", "rc2")
++
++
++def require_a16():
++    """When set, a W8A16 weight decode may not silently fall back to PyTorch."""
++    return os.environ.get("KI8_REQUIRE_A16", "").strip().lower() in ("1", "true", "yes", "on")
+ 
+ 
+ def policy():
+     value = _override.get() or _default
+-    if value not in ("auto", "reference"):
+-        raise ValueError("KI8_ENGINE must be auto or reference")
+-    return value
++    if value not in _POLICIES:
++        raise ValueError("KI8_ENGINE must be auto, reference or release")
++    return "release" if value == "rc2" else value
+ 
+ 
+ @contextmanager
+ def execution(value):
+-    if value not in ("auto", "reference"):
+-        raise ValueError("Choose auto or reference.")
++    if value not in _POLICIES:
++        raise ValueError("Choose auto, reference or release.")
+     token = _override.set(value)
+     try:
+         yield
+@@ -104,7 +110,7 @@ def fast_unpack(codes, headers, group, dtype):
+     if codes.is_cuda:
+         from . import cuda_peak
+ 
+-        return cuda_peak.unpack(codes, headers, group)
++        return cuda_peak.unpack(codes, headers, group, require_w32=require_a16())
+     if codes.device.type != "cpu" or max(rows, cols) > 2147483647:
+         return None
+     lib = cpu_library()
+diff --git a/ki8_lora/native/build_cuda.py b/ki8_lora/native/build_cuda.py
+index e930933..461831f 100644
+--- a/ki8_lora/native/build_cuda.py
++++ b/ki8_lora/native/build_cuda.py
+@@ -5,7 +5,7 @@ import ctypes as c
+ from pathlib import Path
+ 
+ 
+-def compile_ptx(library, source, output):
++def compile_ptx(library, source, output, *, optimized=False):
+     nv = c.CDLL(str(library))
+     ptr = c.c_void_p
+     strings = c.POINTER(c.c_char_p)
+@@ -39,6 +39,8 @@ def compile_ptx(library, source, output):
+             b"--prec-div=true",
+             b"--std=c++14",
+         ]
++        if optimized:
++            opts.append(b"-DKI8_BUILD_OPTIMIZED")
+         status = nv.nvrtcCompileProgram(prog, len(opts), (c.c_char_p * len(opts))(*opts))
+         size = c.c_size_t()
+         if status:
+@@ -49,7 +51,7 @@ def compile_ptx(library, source, output):
+         require(nv.nvrtcGetPTXSize(prog, c.byref(size)))
+         buf = c.create_string_buffer(size.value)
+         require(nv.nvrtcGetPTX(prog, buf))
+-        output.write_bytes(buf.value)
++        output.write_bytes(buf.value.rstrip() + b"\n")
+     finally:
+         nv.nvrtcDestroyProgram(c.byref(prog))
+ 
+@@ -57,6 +59,8 @@ def compile_ptx(library, source, output):
+ if __name__ == "__main__":
+     parser = argparse.ArgumentParser(description=__doc__)
+     parser.add_argument("nvrtc", type=Path)
++    parser.add_argument("--optimized", action="store_true", help="Rebuild the W32 and radius selection image")
+     args = parser.parse_args()
+     root = Path(__file__).resolve().parent
+-    compile_ptx(args.nvrtc.resolve(), root / "peak_cuda.cu", root / "peak_cuda.ptx")
++    name = "peak_optimized.ptx" if args.optimized else "peak_cuda.ptx"
++    compile_ptx(args.nvrtc.resolve(), root / "peak_cuda.cu", root / name, optimized=args.optimized)
+diff --git a/ki8_lora/native/peak_cuda.cu b/ki8_lora/native/peak_cuda.cu
+index 5232ee8..af9db08 100644
+--- a/ki8_lora/native/peak_cuda.cu
++++ b/ki8_lora/native/peak_cuda.cu
+@@ -4,6 +4,9 @@
+ #define KERNEL extern "C" __global__
+ #define LOCAL __device__ __forceinline__
+ #define SHUFFLE(value, stride) __shfl_xor_sync(0xffffffffu, value, stride)
++#define BROADCAST(value) __shfl_sync(0xffffffffu, value, 0)
++#define WARP_MAX(value) __reduce_max_sync(0xffffffffu, value)
++#define WARP_XOR(value) __reduce_xor_sync(0xffffffffu, (unsigned)(value))
+ #endif
+ 
+ LOCAL int width_for(int size) { return size >= 8 ? 3 : (size >= 4 ? 2 : (size >= 2 ? 1 : 0)); }
+@@ -14,6 +17,7 @@ LOCAL int column_for(int lane, int pivot, int width) {
+     return 1 + (lane - (lane > pivot)) % ((1 << width) - 1);
+ }
+ 
++#ifndef KI8_BUILD_OPTIMIZED
+ KERNEL void ki8_decode_bf16(const unsigned char *raw, const unsigned char *heads,
+                             unsigned short *out, const unsigned short *table, int rows, int cols,
+                             int group) {
+@@ -58,68 +62,229 @@ KERNEL void ki8_decode_bf16(const unsigned char *raw, const unsigned char *heads
+         out[base + j] = (unsigned short)((bits + (q ? shift : 0)) | ((v & 128) << 8));
+     }
+ }
++#endif
++
++// One lane holds up to four values and reuses them for all tested radii.
++struct RadiusInput {
++    float value[4];
++    int bucket[4];
++    int column[4];
++};
++
++LOCAL RadiusInput load_radius_input(const float *values, int lane, int n, int pivot, int width) {
++    RadiusInput in = {};
++    #pragma unroll
++    for (int t = 0; t < 4; ++t) {
++        int j = lane + 32 * t;
++        if (j < n) {
++            float value = values[j];
++            in.value[t] = value;
++            in.bucket[t] = (int)(fminf(1.f, fmaxf(value, 0.f)) * 4096.f);
++            in.column[t] = column_for(j, pivot, width);
++        }
++    }
++    return in;
++}
++
++LOCAL void fit_radius(const RadiusInput &in, const float *grid, const float *mids,
++                      const unsigned char *bins, int lane, int n, int mode, int (&qv)[4]) {
++    int signature = 0;
++    #pragma unroll
++    for (int t = 0; t < 4; ++t) {
++        if (lane + 32 * t >= n)
++            continue;
++        int q = bins[in.bucket[t]];
++        if (q < 111 && in.value[t] > mids[q])
++            ++q;
++        qv[t] = q;
++        if (q & 1)
++            signature ^= in.column[t];
++    }
++    for (int s = 16; s; s >>= 1)
++        signature ^= SHUFFLE(signature, s);
++    int need = signature ^ mode;
++    if (!need)
++        return;
+ 
+-// The rounding candidate is fused; the caller retains the original PyTorch
+-// sum and strict-less-than comparison between radii, including near ties.
++    const float inf = __int_as_float(0x7f800000);
++    float min_cost = inf;
++    int index = 256, alternative = 0;
++    #pragma unroll
++    for (int t = 0; t < 4; ++t) {
++        int j = lane + 32 * t;
++        if (j >= n || in.column[t] != need)
++            continue;
++        int q = qv[t];
++        float v = in.value[t];
++        float left = q ? fabsf(v - grid[q - 1]) : inf;
++        float right = q < 111 ? fabsf(v - grid[q + 1]) : inf;
++        float e = fminf(left, right), near = grid[q] - v;
++        float cost = e * e - near * near;
++        if (cost < min_cost) {
++            min_cost = cost;
++            index = j;
++            alternative = left < right ? q - 1 : q + 1;
++        }
++    }
++    for (int s = 16; s; s >>= 1) {
++        float cost = SHUFFLE(min_cost, s);
++        int j = SHUFFLE(index, s);
++        if (cost < min_cost || (cost == min_cost && j < index)) {
++            min_cost = cost;
++            index = j;
++        }
++    }
++    #pragma unroll
++    for (int t = 0; t < 4; ++t)
++        if (index == lane + 32 * t)
++            qv[t] = alternative;
++}
++
++LOCAL long long warp_index() {
++    return ((long long)blockIdx.x * blockDim.x + threadIdx.x) / 32;
++}
++
++#ifndef KI8_BUILD_OPTIMIZED
++// Candidate path. PyTorch sums these residual squares.
+ KERNEL void ki8_candidate(const float *values, const long long *positions, const float *levels,
+                           const float *mids, const unsigned char *bins, unsigned char *codes,
+                           float *squares, int groups, int n, int mode) {
+-    int lane = threadIdx.x & 31;
+-    long long id = ((long long)blockIdx.x * blockDim.x + threadIdx.x) / 32;
++    const int lane = threadIdx.x & 31;
++    const long long id = warp_index();
+     if (id >= groups)
+         return;
+-    long long base = id * n;
++    const long long base = id * n;
+     int pivot = (int)positions[id], width = width_for(n), full = mode << (3 - width);
+-    const float *grid = levels + full * 112, *mid = mids + full * 112;
+-    const unsigned char *bucket = bins + full * 4097;
+-    int signature = 0, qv[4];
+-    float input[4];
+-    for (int j = lane; j < n; j += 32) {
+-        float v = values[base + j];
+-        int q = bucket[(int)(fminf(1.f, fmaxf(v, 0.f)) * 4096.f)];
+-        if (q < 111 && v > mid[q])
+-            ++q;
+-        qv[j / 32] = q;
+-        input[j / 32] = v;
+-        if (q & 1)
+-            signature ^= column_for(j, pivot, width);
++    const float *grid = levels + full * 112;
++    RadiusInput in = load_radius_input(values + base, lane, n, pivot, width);
++    int q[4] = {};
++    fit_radius(in, grid, mids + full * 112, bins + full * 4097, lane, n, mode, q);
++    #pragma unroll
++    for (int t = 0; t < 4; ++t) {
++        int j = lane + 32 * t;
++        if (j < n) {
++            float d = grid[q[t]] - in.value[t];
++            codes[base + j] = (unsigned char)q[t];
++            squares[base + j] = j == pivot ? 0.f : d * d;
++        }
+     }
++}
++#else
++
++// RC3 W8A16 only decodes its weights. W32 gives each lane exactly one
++// value, so SM80's integer warp reductions replace both shuffle trees.
++KERNEL void ki8_decode_w32(const unsigned char *raw, const unsigned char *heads,
++                           unsigned short *out, const unsigned short *table, int rows, int cols,
++                           int group) {
++    const int lane = threadIdx.x & 31;
++    const long long id = warp_index();
++    const int per_row = 1 + (cols - 1) / 32;
++    if (id >= (long long)rows * per_row)
++        return;
++    long long base = id * 32;
++    int size = 32;
++    if (cols & 31) {
++        const long long row = id / per_row;
++        const int start = (int)(id - row * per_row) * 32;
++        size = cols - start < 32 ? cols - start : 32;
++        base = row * cols + start;
++    }
++    const unsigned code = lane < size ? raw[base + lane] : 0;
++    const int q = code & 127;
++    const int top = WARP_MAX(lane < size ? (q << 5) | (31 - lane) : -1);
++    const int head = heads[id];
++    int lut_row = 1024 + head;
++    int shift = 0;
++    if ((top >> 5) >= 112) {
++        const int pivot = 31 - (top & 31);
++        const int width = width_for(size);
++        const int column = lane < size && (q & 1) && q < 112 ? column_for(lane, pivot, width) : 0;
++        const int radius = WARP_XOR(column) << (3 - width);
++        const int frac = ((head & 7) << 4) | ((top >> 5) & 15);
++        lut_row = frac * 8 + radius;
++        shift = ((head >> 3) - 16) * 128;
++    }
++    if (lane < size) {
++        const int word = table[lut_row * 128 + q] + (q ? shift : 0);
++        out[base + lane] = (unsigned short)(word | ((code & 128) << 8));
++    }
++}
++
++// PyTorch's FP32 contiguous last-axis sum for up to 128 inputs. Threads first
++// accumulate at the reduction block's stride, then combine pairs in ascending
++// shuffle offsets. The two wider layouts give the same pairs within each lane.
++LOCAL float radius_sum(const float (&squares)[4], int reduce_width) {
++    float sum;
++    if (reduce_width >= 64) {
++        sum = (squares[0] + squares[2]) + (squares[1] + squares[3]);
++    } else if (reduce_width == 32) {
++        sum = ((squares[0] + squares[1]) + squares[2]) + squares[3];
++    } else {
++        sum = squares[0] + SHUFFLE(squares[0], reduce_width);
++    }
++    const int lanes = reduce_width < 32 ? reduce_width : 32;
++    for (int s = 1; s < lanes; s <<= 1)
++        sum += SHUFFLE(sum, s);
++    return sum;
++}
++
++// Select the first minimum directly in the warp. Only the winning codes
++// leave registers. Diagnostic scores exercise the exact FP32 reduction order.
++KERNEL void ki8_select(const float *values, const long long *positions, const float *levels,
++                       const float *mids, const unsigned char *bins, unsigned char *codes,
++                       float *scores, int groups, int n, int modes, int reduce_width) {
++    const int lane = threadIdx.x & 31;
++    const long long id = warp_index();
++    if (id >= groups)
++        return;
++    const long long base = id * n;
++    int pivot = (int)positions[id], width = width_for(n);
++    RadiusInput in = load_radius_input(values + base, lane, n, pivot, width);
++    float runner = 0.f;
++    #pragma unroll
++    for (int t = 0; t < 4; ++t)
++        if (lane + 32 * t != pivot)
++            runner = fmaxf(runner, in.value[t]);
+     for (int s = 16; s; s >>= 1)
+-        signature ^= SHUFFLE(signature, s);
+-    int need = signature ^ mode;
+-    if (need) {
+-        float min_cost = __int_as_float(0x7f800000);
+-        int index = 256, alt[4] = {0, 0, 0, 0};
+-        for (int j = lane; j < n; j += 32) {
+-            if (column_for(j, pivot, width) != need)
+-                continue;
+-            int q = qv[j / 32];
+-            float v = input[j / 32], inf = __int_as_float(0x7f800000);
+-            float left = q ? fabsf(v - grid[q - 1]) : inf,
+-                  right = q < 111 ? fabsf(v - grid[q + 1]) : inf;
+-            float e = fminf(left, right), near = grid[q] - v;
+-            float cost = e * e - near * near;
+-            alt[j / 32] = left < right ? q - 1 : q + 1;
+-            if (cost < min_cost) {
+-                min_cost = cost;
+-                index = j;
++        runner = fmaxf(runner, SHUFFLE(runner, s));
++
++    int best[4] = {};
++    float best_error = __int_as_float(0x7f800000);
++    for (int mode = 0; mode < modes; ++mode) {
++        const int full = mode << (3 - width);
++        // Even the nearest valid code for the runner-up cannot beat this
++        // nonnegative SSE bound. All subsequent radii have an equal or larger bound.
++        const float clip = fmaxf(0.f, runner - (8 - full) * 0.125f);
++        if (!scores && mode && clip * clip >= best_error)
++            break;
++        int q[4] = {};
++        const float *grid = levels + full * 112;
++        fit_radius(in, grid, mids + full * 112, bins + full * 4097, lane, n, mode, q);
++        float squares[4] = {};
++        #pragma unroll
++        for (int t = 0; t < 4; ++t) {
++            int j = lane + 32 * t;
++            if (j < n && j != pivot) {
++                float d = grid[q[t]] - in.value[t];
++                squares[t] = d * d;
+             }
+         }
+-        for (int s = 16; s; s >>= 1) {
+-            float other = SHUFFLE(min_cost, s);
+-            int other_idx = SHUFFLE(index, s);
+-            if (other < min_cost || (other == min_cost && other_idx < index)) {
+-                min_cost = other;
+-                index = other_idx;
+-            }
++        // For small tails only the low lanes participate in PyTorch's sum.
++        float error = BROADCAST(radius_sum(squares, reduce_width));
++        if (scores && lane == 0)
++            scores[id * modes + mode] = error;
++        if (!mode || error < best_error) {
++            best_error = error;
++            #pragma unroll
++            for (int t = 0; t < 4; ++t)
++                best[t] = q[t];
+         }
+-        if (index < n && (index & 31) == lane)
+-            qv[index / 32] = alt[index / 32];
+     }
+-    for (int j = lane; j < n; j += 32) {
+-        int q = qv[j / 32];
+-        float d = grid[q] - input[j / 32];
+-        codes[base + j] = (unsigned char)q;
+-        squares[base + j] = j == pivot ? 0.f : d * d;
++    #pragma unroll
++    for (int t = 0; t < 4; ++t) {
++        int j = lane + 32 * t;
++        if (j < n)
++            codes[base + j] = (unsigned char)best[t];
+     }
+ }
++#endif
+diff --git a/ki8_lora/native/peak_optimized.ptx b/ki8_lora/native/peak_optimized.ptx
+new file mode 100644
+index 0000000..a379411
+--- /dev/null
++++ b/ki8_lora/native/peak_optimized.ptx
+@@ -0,0 +1,1077 @@
++//
++// Generated by NVIDIA NVVM Compiler
++//
++// Compiler Build ID: CL-35404655
++// Cuda compilation tools, release 12.8, V12.8.61
++// Based on NVVM 7.0.1
++//
++
++.version 8.7
++.target sm_80
++.address_size 64
++
++	// .globl	ki8_decode_w32
++
++.visible .entry ki8_decode_w32(
++	.param .u64 ki8_decode_w32_param_0,
++	.param .u64 ki8_decode_w32_param_1,
++	.param .u64 ki8_decode_w32_param_2,
++	.param .u64 ki8_decode_w32_param_3,
++	.param .u32 ki8_decode_w32_param_4,
++	.param .u32 ki8_decode_w32_param_5,
++	.param .u32 ki8_decode_w32_param_6
++)
++{
++	.reg .pred 	%p<22>;
++	.reg .b32 	%r<81>;
++	.reg .b64 	%rd<40>;
++
++
++	ld.param.u64 	%rd10, [ki8_decode_w32_param_0];
++	ld.param.u64 	%rd11, [ki8_decode_w32_param_1];
++	ld.param.u64 	%rd12, [ki8_decode_w32_param_2];
++	ld.param.u64 	%rd13, [ki8_decode_w32_param_3];
++	ld.param.u32 	%r19, [ki8_decode_w32_param_4];
++	ld.param.u32 	%r18, [ki8_decode_w32_param_5];
++	mov.u32 	%r20, %tid.x;
++	and.b32  	%r1, %r20, 31;
++	mov.u32 	%r21, %ctaid.x;
++	mov.u32 	%r22, %ntid.x;
++	mul.wide.u32 	%rd14, %r21, %r22;
++	cvt.u64.u32 	%rd15, %r20;
++	add.s64 	%rd1, %rd14, %rd15;
++	shr.u64 	%rd2, %rd1, 5;
++	add.s32 	%r23, %r18, -1;
++	shr.s32 	%r24, %r23, 31;
++	shr.u32 	%r25, %r24, 27;
++	add.s32 	%r26, %r23, %r25;
++	shr.s32 	%r27, %r26, 5;
++	add.s32 	%r28, %r27, 1;
++	cvt.s64.s32 	%rd3, %r28;
++	mul.wide.s32 	%rd16, %r28, %r19;
++	setp.ge.s64 	%p1, %rd2, %rd16;
++	@%p1 bra 	$L__BB0_15;
++
++	and.b64  	%rd39, %rd1, 9223372036854775776;
++	and.b32  	%r30, %r18, 31;
++	setp.eq.s32 	%p2, %r30, 0;
++	mov.u32 	%r76, 32;
++	@%p2 bra 	$L__BB0_6;
++
++	or.b64  	%rd17, %rd2, %rd3;
++	and.b64  	%rd18, %rd17, -4294967296;
++	setp.eq.s64 	%p3, %rd18, 0;
++	@%p3 bra 	$L__BB0_4;
++
++	div.s64 	%rd38, %rd2, %rd3;
++	bra.uni 	$L__BB0_5;
++
++$L__BB0_4:
++	cvt.u32.u64 	%r31, %rd3;
++	cvt.u32.u64 	%r32, %rd2;
++	div.u32 	%r33, %r32, %r31;
++	cvt.u64.u32 	%rd38, %r33;
++
++$L__BB0_5:
++	mul.lo.s64 	%rd19, %rd38, %rd3;
++	sub.s64 	%rd20, %rd2, %rd19;
++	cvt.u32.u64 	%r34, %rd20;
++	shl.b32 	%r35, %r34, 5;
++	sub.s32 	%r36, %r18, %r35;
++	min.s32 	%r76, %r36, 32;
++	cvt.s64.s32 	%rd21, %r18;
++	mul.lo.s64 	%rd22, %rd38, %rd21;
++	cvt.s64.s32 	%rd23, %r35;
++	add.s64 	%rd39, %rd22, %rd23;
++
++$L__BB0_6:
++	setp.ge.s32 	%p4, %r1, %r76;
++	mov.u32 	%r80, 0;
++	mov.u32 	%r77, %r80;
++	@%p4 bra 	$L__BB0_8;
++
++	cvt.u64.u32 	%rd24, %r1;
++	add.s64 	%rd25, %rd39, %rd24;
++	cvta.to.global.u64 	%rd26, %rd10;
++	add.s64 	%rd27, %rd26, %rd25;
++	ld.global.u8 	%r77, [%rd27];
++
++$L__BB0_8:
++	and.b32  	%r6, %r77, 127;
++	shl.b32 	%r39, %r77, 5;
++	and.b32  	%r40, %r39, 4064;
++	or.b32  	%r41, %r40, %r1;
++	xor.b32  	%r42, %r41, 31;
++	setp.lt.s32 	%p5, %r1, %r76;
++	selp.b32 	%r43, %r42, -1, %p5;
++	mov.u32 	%r44, -1;
++	redux.sync.max.s32 %r7, %r43, %r44;
++	cvta.to.global.u64 	%rd28, %rd11;
++	add.s64 	%rd29, %rd28, %rd2;
++	ld.global.u8 	%r8, [%rd29];
++	or.b32  	%r79, %r8, 1024;
++	setp.lt.s32 	%p6, %r7, 3584;
++	@%p6 bra 	$L__BB0_13;
++
++	setp.gt.s32 	%p8, %r76, 1;
++	selp.u32 	%r46, 1, 0, %p8;
++	setp.gt.s32 	%p9, %r76, 3;
++	selp.b32 	%r47, 2, %r46, %p9;
++	setp.gt.s32 	%p10, %r76, 7;
++	selp.b32 	%r10, 3, %r47, %p10;
++	and.b32  	%r48, %r77, 1;
++	setp.eq.b32 	%p11, %r48, 1;
++	not.pred 	%p12, %p11;
++	mov.u32 	%r78, 0;
++	or.pred  	%p13, %p4, %p12;
++	setp.gt.u32 	%p14, %r6, 111;
++	or.pred  	%p15, %p14, %p13;
++	@%p15 bra 	$L__BB0_12;
++
++	not.b32 	%r50, %r7;
++	and.b32  	%r11, %r50, 31;
++	setp.eq.s32 	%p16, %r1, %r11;
++	setp.eq.s32 	%p17, %r10, 0;
++	or.pred  	%p18, %p17, %p16;
++	@%p18 bra 	$L__BB0_12;
++
++	setp.gt.u32 	%p19, %r1, %r11;
++	selp.u32 	%r51, 1, 0, %p19;
++	sub.s32 	%r52, %r1, %r51;
++	mov.u32 	%r53, -1;
++	shl.b32 	%r54, %r53, %r10;
++	not.b32 	%r55, %r54;
++	rem.s32 	%r56, %r52, %r55;
++	add.s32 	%r78, %r56, 1;
++
++$L__BB0_12:
++	mov.u32 	%r57, -1;
++	redux.sync.xor.b32 %r58, %r78, %r57;
++	xor.b32  	%r59, %r10, 3;
++	shl.b32 	%r60, %r58, %r59;
++	and.b32  	%r61, %r8, 7;
++	shr.u32 	%r62, %r7, 5;
++	and.b32  	%r63, %r62, 15;
++	bfi.b32 	%r64, %r61, %r63, 4, 3;
++	shl.b32 	%r65, %r64, 3;
++	add.s32 	%r79, %r60, %r65;
++	shl.b32 	%r66, %r8, 4;
++	and.b32  	%r67, %r66, 3968;
++	add.s32 	%r80, %r67, -2048;
++
++$L__BB0_13:
++	@%p4 bra 	$L__BB0_15;
++
++	shl.b32 	%r68, %r79, 7;
++	or.b32  	%r69, %r68, %r6;
++	cvta.to.global.u64 	%rd30, %rd13;
++	mul.wide.s32 	%rd31, %r69, 2;
++	add.s64 	%rd32, %rd30, %rd31;
++	ld.global.u16 	%r70, [%rd32];
++	setp.eq.s32 	%p21, %r6, 0;
++	selp.b32 	%r71, 0, %r80, %p21;
++	add.s32 	%r72, %r71, %r70;
++	shl.b32 	%r73, %r77, 8;
++	and.b32  	%r74, %r73, 32768;
++	or.b32  	%r75, %r72, %r74;
++	cvt.u64.u32 	%rd33, %r1;
++	add.s64 	%rd34, %rd39, %rd33;
++	cvta.to.global.u64 	%rd35, %rd12;
++	shl.b64 	%rd36, %rd34, 1;
++	add.s64 	%rd37, %rd35, %rd36;
++	st.global.u16 	[%rd37], %r75;
++
++$L__BB0_15:
++	ret;
++
++}
++	// .globl	ki8_select
++.visible .entry ki8_select(
++	.param .u64 ki8_select_param_0,
++	.param .u64 ki8_select_param_1,
++	.param .u64 ki8_select_param_2,
++	.param .u64 ki8_select_param_3,
++	.param .u64 ki8_select_param_4,
++	.param .u64 ki8_select_param_5,
++	.param .u64 ki8_select_param_6,
++	.param .u32 ki8_select_param_7,
++	.param .u32 ki8_select_param_8,
++	.param .u32 ki8_select_param_9,
++	.param .u32 ki8_select_param_10
++)
++{
++	.reg .pred 	%p<183>;
++	.reg .b16 	%rs<5>;
++	.reg .f32 	%f<222>;
++	.reg .b32 	%r<337>;
++	.reg .b64 	%rd<109>;
++
++
++	ld.param.u64 	%rd20, [ki8_select_param_0];
++	ld.param.u64 	%rd21, [ki8_select_param_1];
++	ld.param.u64 	%rd24, [ki8_select_param_2];
++	ld.param.u64 	%rd25, [ki8_select_param_3];
++	ld.param.u64 	%rd26, [ki8_select_param_4];
++	ld.param.u64 	%rd23, [ki8_select_param_6];
++	ld.param.s32 	%rd27, [ki8_select_param_7];
++	ld.param.u32 	%r116, [ki8_select_param_8];
++	ld.param.u32 	%r117, [ki8_select_param_9];
++	ld.param.u32 	%r118, [ki8_select_param_10];
++	cvta.to.global.u64 	%rd1, %rd25;
++	cvta.to.global.u64 	%rd2, %rd26;
++	cvta.to.global.u64 	%rd3, %rd24;
++	mov.u32 	%r119, %tid.x;
++	and.b32  	%r1, %r119, 31;
++	mov.u32 	%r120, %ctaid.x;
++	mov.u32 	%r121, %ntid.x;
++	mul.wide.u32 	%rd28, %r120, %r121;
++	cvt.u64.u32 	%rd29, %r119;
++	add.s64 	%rd30, %rd28, %rd29;
++	shr.u64 	%rd4, %rd30, 5;
++	setp.ge.s64 	%p24, %rd4, %rd27;
++	@%p24 bra 	$L__BB1_112;
++
++	cvta.to.global.u64 	%rd31, %rd21;
++	cvt.s64.s32 	%rd32, %r116;
++	mul.lo.s64 	%rd5, %rd4, %rd32;
++	shl.b64 	%rd33, %rd4, 3;
++	add.s64 	%rd34, %rd31, %rd33;
++	ld.global.u32 	%r2, [%rd34];
++	setp.gt.s32 	%p25, %r116, 1;
++	selp.u32 	%r122, 1, 0, %p25;
++	setp.gt.s32 	%p26, %r116, 3;
++	selp.b32 	%r123, 2, %r122, %p26;
++	setp.gt.s32 	%p27, %r116, 7;
++	selp.b32 	%r3, 3, %r123, %p27;
++	setp.eq.s32 	%p28, %r3, 0;
++	mov.u32 	%r124, -1;
++	shl.b32 	%r125, %r124, %r3;
++	not.b32 	%r4, %r125;
++	cvt.u64.u32 	%rd35, %r1;
++	add.s64 	%rd36, %rd5, %rd35;
++	cvta.to.global.u64 	%rd37, %rd20;
++	shl.b64 	%rd38, %rd36, 2;
++	add.s64 	%rd6, %rd37, %rd38;
++	@%p28 bra 	$L__BB1_14;
++
++	setp.ge.s32 	%p29, %r1, %r116;
++	mov.u32 	%r301, 0;
++	mov.f32 	%f197, 0f00000000;
++	mov.f32 	%f196, %f197;
++	mov.u32 	%r296, %r301;
++	mov.u32 	%r300, %r301;
++	@%p29 bra 	$L__BB1_5;
++
++	ld.global.f32 	%f196, [%rd6];
++	cvt.sat.f32.f32 	%f77, %f196;
++	mul.rn.f32 	%f78, %f77, 0f45800000;
++	cvt.rzi.s32.f32 	%r296, %f78;
++	setp.eq.s32 	%p30, %r1, %r2;
++	@%p30 bra 	$L__BB1_5;
++
++	setp.gt.s32 	%p31, %r1, %r2;
++	selp.u32 	%r129, 1, 0, %p31;
++	sub.s32 	%r130, %r1, %r129;
++	rem.s32 	%r131, %r130, %r4;
++	add.s32 	%r300, %r131, 1;
++
++$L__BB1_5:
++	or.b32  	%r9, %r1, 32;
++	setp.ge.s32 	%p32, %r9, %r116;
++	mov.u32 	%r297, %r301;
++	@%p32 bra 	$L__BB1_8;
++
++	ld.global.f32 	%f197, [%rd6+128];
++	cvt.sat.f32.f32 	%f80, %f197;
++	mul.rn.f32 	%f81, %f80, 0f45800000;
++	cvt.rzi.s32.f32 	%r297, %f81;
++	setp.eq.s32 	%p33, %r9, %r2;
++	@%p33 bra 	$L__BB1_8;
++
++	setp.gt.s32 	%p34, %r9, %r2;
++	selp.u32 	%r135, 1, 0, %p34;
++	sub.s32 	%r136, %r9, %r135;
++	rem.u32 	%r137, %r136, %r4;
++	add.s32 	%r301, %r137, 1;
++
++$L__BB1_8:
++	or.b32  	%r14, %r1, 64;
++	setp.ge.s32 	%p35, %r14, %r116;
++	mov.u32 	%r303, 0;
++	mov.f32 	%f199, 0f00000000;
++	mov.f32 	%f198, %f199;
++	mov.u32 	%r298, %r303;
++	mov.u32 	%r302, %r303;
++	@%p35 bra 	$L__BB1_11;
++
++	ld.global.f32 	%f198, [%rd6+256];
++	cvt.sat.f32.f32 	%f83, %f198;
++	mul.rn.f32 	%f84, %f83, 0f45800000;
++	cvt.rzi.s32.f32 	%r298, %f84;
++	setp.eq.s32 	%p36, %r14, %r2;
++	@%p36 bra 	$L__BB1_11;
++
++	setp.gt.s32 	%p37, %r14, %r2;
++	selp.u32 	%r141, 1, 0, %p37;
++	sub.s32 	%r142, %r14, %r141;
++	rem.u32 	%r143, %r142, %r4;
++	add.s32 	%r302, %r143, 1;
++
++$L__BB1_11:
++	or.b32  	%r19, %r1, 96;
++	setp.ge.s32 	%p38, %r19, %r116;
++	mov.u32 	%r299, %r303;
++	@%p38 bra 	$L__BB1_22;
++
++	ld.global.f32 	%f199, [%rd6+384];
++	cvt.sat.f32.f32 	%f86, %f199;
++	mul.rn.f32 	%f87, %f86, 0f45800000;
++	cvt.rzi.s32.f32 	%r299, %f87;
++	setp.eq.s32 	%p39, %r19, %r2;
++	@%p39 bra 	$L__BB1_22;
++
++	setp.gt.s32 	%p40, %r19, %r2;
++	selp.u32 	%r147, 1, 0, %p40;
++	sub.s32 	%r148, %r19, %r147;
++	rem.u32 	%r149, %r148, %r4;
++	add.s32 	%r303, %r149, 1;
++	bra.uni 	$L__BB1_22;
++
++$L__BB1_14:
++	setp.ge.s32 	%p41, %r1, %r116;
++	mov.u32 	%r297, 0;
++	mov.f32 	%f197, 0f00000000;
++	mov.f32 	%f196, %f197;
++	mov.u32 	%r296, %r297;
++	@%p41 bra 	$L__BB1_16;
++
++	ld.global.f32 	%f196, [%rd6];
++	cvt.sat.f32.f32 	%f89, %f196;
++	mul.rn.f32 	%f90, %f89, 0f45800000;
++	cvt.rzi.s32.f32 	%r296, %f90;
++
++$L__BB1_16:
++	or.b32  	%r152, %r1, 32;
++	setp.ge.s32 	%p42, %r152, %r116;
++	@%p42 bra 	$L__BB1_18;
++
++	ld.global.f32 	%f197, [%rd6+128];
++	cvt.sat.f32.f32 	%f92, %f197;
++	mul.rn.f32 	%f93, %f92, 0f45800000;
++	cvt.rzi.s32.f32 	%r297, %f93;
++
++$L__BB1_18:
++	or.b32  	%r154, %r1, 64;
++	setp.ge.s32 	%p43, %r154, %r116;
++	mov.u32 	%r300, 0;
++	mov.f32 	%f199, 0f00000000;
++	mov.f32 	%f198, %f199;
++	mov.u32 	%r298, %r300;
++	@%p43 bra 	$L__BB1_20;
++
++	ld.global.f32 	%f198, [%rd6+256];
++	cvt.sat.f32.f32 	%f95, %f198;
++	mul.rn.f32 	%f96, %f95, 0f45800000;
++	cvt.rzi.s32.f32 	%r298, %f96;
++
++$L__BB1_20:
++	or.b32  	%r160, %r1, 96;
++	setp.ge.s32 	%p44, %r160, %r116;
++	mov.u32 	%r299, %r300;
++	mov.u32 	%r301, %r300;
++	mov.u32 	%r302, %r300;
++	mov.u32 	%r303, %r300;
++	@%p44 bra 	$L__BB1_22;
++
++	ld.global.f32 	%f199, [%rd6+384];
++	cvt.sat.f32.f32 	%f98, %f199;
++	mul.rn.f32 	%f99, %f98, 0f45800000;
++	cvt.rzi.s32.f32 	%r299, %f99;
++	mov.u32 	%r301, %r300;
++	mov.u32 	%r302, %r300;
++	mov.u32 	%r303, %r300;
++
++$L__BB1_22:
++	setp.eq.s32 	%p45, %r1, %r2;
++	mov.f32 	%f201, 0f00000000;
++	@%p45 bra 	$L__BB1_24;
++
++	mov.f32 	%f101, 0f00000000;
++	max.f32 	%f201, %f101, %f196;
++
++$L__BB1_24:
++	or.b32  	%r37, %r1, 32;
++	setp.eq.s32 	%p46, %r37, %r2;
++	@%p46 bra 	$L__BB1_26;
++
++	max.f32 	%f201, %f201, %f197;
++
++$L__BB1_26:
++	or.b32  	%r38, %r1, 64;
++	setp.eq.s32 	%p47, %r38, %r2;
++	@%p47 bra 	$L__BB1_28;
++
++	max.f32 	%f201, %f201, %f198;
++
++$L__BB1_28:
++	or.b32  	%r39, %r1, 96;
++	setp.eq.s32 	%p48, %r39, %r2;
++	@%p48 bra 	$L__BB1_30;
++
++	max.f32 	%f201, %f201, %f199;
++
++$L__BB1_30:
++	mov.b32 	%r169, %f201;
++	mov.u32 	%r170, 31;
++	mov.u32 	%r171, 16;
++	mov.u32 	%r172, -1;
++	shfl.sync.bfly.b32 	%r173|%p49, %r169, %r171, %r170, %r172;
++	mov.b32 	%f102, %r173;
++	max.f32 	%f103, %f201, %f102;
++	mov.b32 	%r174, %f103;
++	mov.u32 	%r175, 8;
++	shfl.sync.bfly.b32 	%r176|%p50, %r174, %r175, %r170, %r172;
++	mov.b32 	%f104, %r176;
++	max.f32 	%f105, %f103, %f104;
++	mov.b32 	%r177, %f105;
++	mov.u32 	%r178, 4;
++	shfl.sync.bfly.b32 	%r179|%p51, %r177, %r178, %r170, %r172;
++	mov.b32 	%f106, %r179;
++	max.f32 	%f107, %f105, %f106;
++	mov.b32 	%r180, %f107;
++	mov.u32 	%r181, 2;
++	shfl.sync.bfly.b32 	%r182|%p52, %r180, %r181, %r170, %r172;
++	mov.b32 	%f108, %r182;
++	max.f32 	%f109, %f107, %f108;
++	mov.b32 	%r183, %f109;
++	mov.u32 	%r184, 1;
++	shfl.sync.bfly.b32 	%r185|%p53, %r183, %r184, %r170, %r172;
++	mov.b32 	%f110, %r185;
++	max.f32 	%f27, %f109, %f110;
++	setp.lt.s32 	%p54, %r117, 1;
++	mov.u32 	%r333, 0;
++	mov.u32 	%r334, %r333;
++	mov.u32 	%r335, %r333;
++	mov.u32 	%r336, %r333;
++	@%p54 bra 	$L__BB1_104;
++
++	setp.lt.s32 	%p55, %r1, %r116;
++	xor.b32  	%r40, %r3, 3;
++	min.s32 	%r41, %r118, 32;
++	setp.eq.s32 	%p56, %r1, 0;
++	mov.u32 	%r333, 0;
++	setp.ne.s64 	%p57, %rd23, 0;
++	and.pred  	%p1, %p56, %p57;
++	cvt.s64.s32 	%rd39, %r117;
++	mul.lo.s64 	%rd7, %rd4, %rd39;
++	cvt.s64.s32 	%rd8, %r296;
++	cvt.s64.s32 	%rd9, %r297;
++	cvt.s64.s32 	%rd10, %r298;
++	cvt.s64.s32 	%rd11, %r299;
++	setp.ne.s32 	%p58, %r1, %r2;
++	and.pred  	%p2, %p55, %p58;
++	setp.ne.s32 	%p59, %r37, %r2;
++	setp.lt.s32 	%p60, %r37, %r116;
++	and.pred  	%p3, %p60, %p59;
++	setp.ne.s32 	%p61, %r38, %r2;
++	setp.lt.s32 	%p62, %r38, %r116;
++	and.pred  	%p4, %p62, %p61;
++	setp.ne.s32 	%p63, %r39, %r2;
++	setp.lt.s32 	%p64, %r39, %r116;
++	and.pred  	%p5, %p64, %p63;
++	cvta.to.global.u64 	%rd12, %rd23;
++	mov.f32 	%f204, 0f7F800000;
++	not.pred 	%p150, %p2;
++	not.pred 	%p151, %p3;
++	not.pred 	%p152, %p4;
++	not.pred 	%p153, %p5;
++	not.pred 	%p161, %p1;
++	mov.u32 	%r308, %r333;
++
++$L__BB1_32:
++	ld.param.u64 	%rd108, [ki8_select_param_6];
++	shl.b32 	%r47, %r308, %r40;
++	mov.u32 	%r191, 8;
++	sub.s32 	%r192, %r191, %r47;
++	cvt.rn.f32.s32 	%f112, %r192;
++	mul.rn.f32 	%f113, %f112, 0fBE000000;
++	add.rn.f32 	%f114, %f27, %f113;
++	mov.f32 	%f115, 0f00000000;
++	max.f32 	%f116, %f115, %f114;
++	setp.ne.s32 	%p65, %r308, 0;
++	setp.eq.s64 	%p66, %rd108, 0;
++	and.pred  	%p67, %p66, %p65;
++	mul.rn.f32 	%f117, %f116, %f116;
++	setp.ge.f32 	%p68, %f117, %f204;
++	and.pred  	%p69, %p67, %p68;
++	@%p69 bra 	$L__BB1_104;
++
++	setp.ge.s32 	%p70, %r1, %r116;
++	mul.lo.s32 	%r195, %r47, 112;
++	cvt.s64.s32 	%rd13, %r195;
++	mul.lo.s32 	%r196, %r47, 4097;
++	cvt.s64.s32 	%rd14, %r196;
++	mov.u32 	%r327, 0;
++	mov.u32 	%r328, %r327;
++	mov.u32 	%r312, %r327;
++	@%p70 bra 	$L__BB1_37;
++
++	add.s64 	%rd40, %rd8, %rd14;
++	add.s64 	%rd41, %rd2, %rd40;
++	ld.global.u8 	%rs1, [%rd41];
++	setp.gt.u16 	%p72, %rs1, 110;
++	mov.pred 	%p174, 0;
++	@%p72 bra 	$L__BB1_36;
++
++	cvt.u64.u16 	%rd42, %rs1;
++	add.s64 	%rd43, %rd42, %rd13;
++	shl.b64 	%rd44, %rd43, 2;
++	add.s64 	%rd45, %rd1, %rd44;
++	ld.global.f32 	%f118, [%rd45];
++	setp.gt.f32 	%p174, %f196, %f118;
++
++$L__BB1_36:
++	selp.u32 	%r197, 1, 0, %p174;
++	cvt.u32.u16 	%r198, %rs1;
++	add.s32 	%r328, %r197, %r198;
++	and.b32  	%r199, %r328, 1;
++	neg.s32 	%r200, %r199;
++	and.b32  	%r312, %r200, %r300;
++
++$L__BB1_37:
++	setp.ge.s32 	%p73, %r37, %r116;
++	@%p73 bra 	$L__BB1_41;
++
++	add.s64 	%rd46, %rd9, %rd14;
++	add.s64 	%rd47, %rd2, %rd46;
++	ld.global.u8 	%rs2, [%rd47];
++	setp.gt.u16 	%p75, %rs2, 110;
++	mov.pred 	%p175, 0;
++	@%p75 bra 	$L__BB1_40;
++
++	cvt.u64.u16 	%rd48, %rs2;
++	add.s64 	%rd49, %rd48, %rd13;
++	shl.b64 	%rd50, %rd49, 2;
++	add.s64 	%rd51, %rd1, %rd50;
++	ld.global.f32 	%f119, [%rd51];
++	setp.gt.f32 	%p175, %f197, %f119;
++
++$L__BB1_40:
++	selp.u32 	%r202, 1, 0, %p175;
++	cvt.u32.u16 	%r203, %rs2;
++	add.s32 	%r327, %r202, %r203;
++	and.b32  	%r204, %r327, 1;
++	neg.s32 	%r205, %r204;
++	and.b32  	%r206, %r205, %r301;
++	xor.b32  	%r312, %r312, %r206;
++
++$L__BB1_41:
++	setp.ge.s32 	%p76, %r38, %r116;
++	mov.u32 	%r325, 0;
++	mov.u32 	%r326, %r325;
++	@%p76 bra 	$L__BB1_45;
++
++	add.s64 	%rd52, %rd10, %rd14;
++	add.s64 	%rd53, %rd2, %rd52;
++	ld.global.u8 	%rs3, [%rd53];
++	setp.gt.u16 	%p78, %rs3, 110;
++	mov.pred 	%p176, 0;
++	@%p78 bra 	$L__BB1_44;
++
++	cvt.u64.u16 	%rd54, %rs3;
++	add.s64 	%rd55, %rd54, %rd13;
++	shl.b64 	%rd56, %rd55, 2;
++	add.s64 	%rd57, %rd1, %rd56;
++	ld.global.f32 	%f120, [%rd57];
++	setp.gt.f32 	%p176, %f198, %f120;
++
++$L__BB1_44:
++	selp.u32 	%r208, 1, 0, %p176;
++	cvt.u32.u16 	%r209, %rs3;
++	add.s32 	%r326, %r208, %r209;
++	and.b32  	%r210, %r326, 1;
++	neg.s32 	%r211, %r210;
++	and.b32  	%r212, %r211, %r302;
++	xor.b32  	%r312, %r312, %r212;
++
++$L__BB1_45:
++	setp.ge.s32 	%p79, %r39, %r116;
++	@%p79 bra 	$L__BB1_49;
++
++	add.s64 	%rd58, %rd11, %rd14;
++	add.s64 	%rd59, %rd2, %rd58;
++	ld.global.u8 	%rs4, [%rd59];
++	setp.gt.u16 	%p81, %rs4, 110;
++	mov.pred 	%p177, 0;
++	@%p81 bra 	$L__BB1_48;
++
++	cvt.u64.u16 	%rd60, %rs4;
++	add.s64 	%rd61, %rd60, %rd13;
++	shl.b64 	%rd62, %rd61, 2;
++	add.s64 	%rd63, %rd1, %rd62;
++	ld.global.f32 	%f121, [%rd63];
++	setp.gt.f32 	%p177, %f199, %f121;
++
++$L__BB1_48:
++	selp.u32 	%r214, 1, 0, %p177;
++	cvt.u32.u16 	%r215, %rs4;
++	add.s32 	%r325, %r214, %r215;
++	and.b32  	%r216, %r325, 1;
++	neg.s32 	%r217, %r216;
++	and.b32  	%r218, %r217, %r303;
++	xor.b32  	%r312, %r312, %r218;
++
++$L__BB1_49:
++	mov.u32 	%r219, 31;
++	mov.u32 	%r220, 16;
++	mov.u32 	%r221, -1;
++	shfl.sync.bfly.b32 	%r222|%p82, %r312, %r220, %r219, %r221;
++	xor.b32  	%r223, %r222, %r312;
++	mov.u32 	%r224, 8;
++	shfl.sync.bfly.b32 	%r225|%p83, %r223, %r224, %r219, %r221;
++	xor.b32  	%r226, %r225, %r223;
++	mov.u32 	%r227, 4;
++	shfl.sync.bfly.b32 	%r228|%p84, %r226, %r227, %r219, %r221;
++	xor.b32  	%r229, %r228, %r226;
++	mov.u32 	%r230, 2;
++	shfl.sync.bfly.b32 	%r231|%p85, %r229, %r230, %r219, %r221;
++	xor.b32  	%r232, %r231, %r229;
++	mov.u32 	%r233, 1;
++	shfl.sync.bfly.b32 	%r234|%p86, %r232, %r233, %r219, %r221;
++	xor.b32  	%r235, %r234, %r232;
++	xor.b32  	%r64, %r235, %r308;
++	setp.eq.s32 	%p87, %r64, 0;
++	@%p87 bra 	$L__BB1_85;
++
++	setp.ge.s32 	%p171, %r1, %r116;
++	setp.ne.s32 	%p89, %r300, %r64;
++	mov.u32 	%r320, 0;
++	mov.u32 	%r319, 256;
++	mov.f32 	%f210, 0f7F800000;
++	or.pred  	%p90, %p171, %p89;
++	@%p90 bra 	$L__BB1_56;
++
++	setp.eq.s32 	%p91, %r328, 0;
++	cvt.u64.u32 	%rd64, %r328;
++	add.s64 	%rd65, %rd64, %rd13;
++	shl.b64 	%rd66, %rd65, 2;
++	add.s64 	%rd15, %rd3, %rd66;
++	mov.f32 	%f206, 0f7F800000;
++	mov.f32 	%f205, %f206;
++	@%p91 bra 	$L__BB1_53;
++
++	ld.global.f32 	%f124, [%rd15+-4];
++	sub.rn.f32 	%f125, %f196, %f124;
++	abs.f32 	%f205, %f125;
++
++$L__BB1_53:
++	setp.gt.s32 	%p92, %r328, 110;
++	@%p92 bra 	$L__BB1_55;
++
++	ld.global.f32 	%f127, [%rd15+4];
++	sub.rn.f32 	%f128, %f196, %f127;
++	abs.f32 	%f206, %f128;
++
++$L__BB1_55:
++	ld.global.f32 	%f129, [%rd15];
++	sub.rn.f32 	%f130, %f129, %f196;
++	min.f32 	%f131, %f205, %f206;
++	mul.rn.f32 	%f132, %f131, %f131;
++	mul.rn.f32 	%f133, %f130, %f130;
++	sub.rn.f32 	%f134, %f132, %f133;
++	setp.lt.f32 	%p93, %f134, 0f7F800000;
++	setp.lt.f32 	%p94, %f205, %f206;
++	selp.b32 	%r238, -1, 1, %p94;
++	add.s32 	%r239, %r238, %r328;
++	min.f32 	%f210, %f134, 0f7F800000;
++	selp.b32 	%r319, %r1, 256, %p93;
++	selp.b32 	%r320, %r239, 0, %p93;
++
++$L__BB1_56:
++	setp.ge.s32 	%p172, %r37, %r116;
++	setp.ne.s32 	%p95, %r301, %r64;
++	or.pred  	%p97, %p172, %p95;
++	@%p97 bra 	$L__BB1_62;
++
++	setp.eq.s32 	%p98, %r327, 0;
++	cvt.u64.u32 	%rd67, %r327;
++	add.s64 	%rd68, %rd67, %rd13;
++	shl.b64 	%rd69, %rd68, 2;
++	add.s64 	%rd16, %rd3, %rd69;
++	mov.f32 	%f209, 0f7F800000;
++	mov.f32 	%f208, %f209;
++	@%p98 bra 	$L__BB1_59;
++
++	ld.global.f32 	%f136, [%rd16+-4];
++	sub.rn.f32 	%f137, %f197, %f136;
++	abs.f32 	%f208, %f137;
++
++$L__BB1_59:
++	setp.gt.s32 	%p99, %r327, 110;
++	@%p99 bra 	$L__BB1_61;
++
++	ld.global.f32 	%f139, [%rd16+4];
++	sub.rn.f32 	%f140, %f197, %f139;
++	abs.f32 	%f209, %f140;
++
++$L__BB1_61:
++	ld.global.f32 	%f141, [%rd16];
++	sub.rn.f32 	%f142, %f141, %f197;
++	min.f32 	%f143, %f208, %f209;
++	mul.rn.f32 	%f144, %f143, %f143;
++	mul.rn.f32 	%f145, %f142, %f142;
++	sub.rn.f32 	%f146, %f144, %f145;
++	setp.lt.f32 	%p100, %f146, %f210;
++	setp.lt.f32 	%p101, %f208, %f209;
++	selp.b32 	%r240, -1, 1, %p101;
++	add.s32 	%r241, %r240, %r327;
++	selp.f32 	%f210, %f146, %f210, %p100;
++	selp.b32 	%r319, %r37, %r319, %p100;
++	selp.b32 	%r320, %r241, %r320, %p100;
++
++$L__BB1_62:
++	setp.ge.s32 	%p170, %r38, %r116;
++	setp.ne.s32 	%p102, %r302, %r64;
++	or.pred  	%p104, %p170, %p102;
++	@%p104 bra 	$L__BB1_68;
++
++	setp.eq.s32 	%p105, %r326, 0;
++	cvt.u64.u32 	%rd70, %r326;
++	add.s64 	%rd71, %rd70, %rd13;
++	shl.b64 	%rd72, %rd71, 2;
++	add.s64 	%rd17, %rd3, %rd72;
++	mov.f32 	%f212, 0f7F800000;
++	mov.f32 	%f211, %f212;
++	@%p105 bra 	$L__BB1_65;
++
++	ld.global.f32 	%f148, [%rd17+-4];
++	sub.rn.f32 	%f149, %f198, %f148;
++	abs.f32 	%f211, %f149;
++
++$L__BB1_65:
++	setp.gt.s32 	%p106, %r326, 110;
++	@%p106 bra 	$L__BB1_67;
++
++	ld.global.f32 	%f151, [%rd17+4];
++	sub.rn.f32 	%f152, %f198, %f151;
++	abs.f32 	%f212, %f152;
++
++$L__BB1_67:
++	ld.global.f32 	%f153, [%rd17];
++	sub.rn.f32 	%f154, %f153, %f198;
++	min.f32 	%f155, %f211, %f212;
++	mul.rn.f32 	%f156, %f155, %f155;
++	mul.rn.f32 	%f157, %f154, %f154;
++	sub.rn.f32 	%f158, %f156, %f157;
++	setp.lt.f32 	%p107, %f158, %f210;
++	setp.lt.f32 	%p108, %f211, %f212;
++	selp.b32 	%r242, -1, 1, %p108;
++	add.s32 	%r243, %r242, %r326;
++	selp.f32 	%f210, %f158, %f210, %p107;
++	selp.b32 	%r319, %r38, %r319, %p107;
++	selp.b32 	%r320, %r243, %r320, %p107;
++
++$L__BB1_68:
++	setp.ge.s32 	%p173, %r39, %r116;
++	setp.ne.s32 	%p109, %r303, %r64;
++	or.pred  	%p111, %p173, %p109;
++	@%p111 bra 	$L__BB1_74;
++
++	setp.eq.s32 	%p112, %r325, 0;
++	cvt.u64.u32 	%rd73, %r325;
++	add.s64 	%rd74, %rd73, %rd13;
++	shl.b64 	%rd75, %rd74, 2;
++	add.s64 	%rd18, %rd3, %rd75;
++	mov.f32 	%f215, 0f7F800000;
++	mov.f32 	%f214, %f215;
++	@%p112 bra 	$L__BB1_71;
++
++	ld.global.f32 	%f160, [%rd18+-4];
++	sub.rn.f32 	%f161, %f199, %f160;
++	abs.f32 	%f214, %f161;
++
++$L__BB1_71:
++	setp.gt.s32 	%p113, %r325, 110;
++	@%p113 bra 	$L__BB1_73;
++
++	ld.global.f32 	%f163, [%rd18+4];
++	sub.rn.f32 	%f164, %f199, %f163;
++	abs.f32 	%f215, %f164;
++
++$L__BB1_73:
++	ld.global.f32 	%f165, [%rd18];
++	sub.rn.f32 	%f166, %f165, %f199;
++	min.f32 	%f167, %f214, %f215;
++	mul.rn.f32 	%f168, %f167, %f167;
++	mul.rn.f32 	%f169, %f166, %f166;
++	sub.rn.f32 	%f170, %f168, %f169;
++	setp.lt.f32 	%p114, %f170, %f210;
++	setp.lt.f32 	%p115, %f214, %f215;
++	selp.b32 	%r244, -1, 1, %p115;
++	add.s32 	%r245, %r244, %r325;
++	selp.f32 	%f210, %f170, %f210, %p114;
++	selp.b32 	%r319, %r39, %r319, %p114;
++	selp.b32 	%r320, %r245, %r320, %p114;
++
++$L__BB1_74:
++	mov.b32 	%r246, %f210;
++	mov.u32 	%r247, 31;
++	mov.u32 	%r248, 16;
++	mov.u32 	%r249, -1;
++	shfl.sync.bfly.b32 	%r250|%p117, %r246, %r248, %r247, %r249;
++	mov.b32 	%f53, %r250;
++	shfl.sync.bfly.b32 	%r81|%p118, %r319, %r248, %r247, %r249;
++	setp.gt.f32 	%p119, %f210, %f53;
++	mov.pred 	%p179, -1;
++	mov.pred 	%p178, %p179;
++	@%p119 bra 	$L__BB1_76;
++
++	setp.eq.f32 	%p120, %f210, %f53;
++	setp.lt.s32 	%p121, %r81, %r319;
++	and.pred  	%p178, %p120, %p121;
++
++$L__BB1_76:
++	selp.f32 	%f54, %f53, %f210, %p178;
++	mov.b32 	%r251, %f54;
++	mov.u32 	%r253, 8;
++	shfl.sync.bfly.b32 	%r255|%p123, %r251, %r253, %r247, %r249;
++	mov.b32 	%f55, %r255;
++	selp.b32 	%r82, %r81, %r319, %p178;
++	shfl.sync.bfly.b32 	%r83|%p124, %r82, %r253, %r247, %r249;
++	setp.gt.f32 	%p125, %f54, %f55;
++	@%p125 bra 	$L__BB1_78;
++
++	setp.eq.f32 	%p126, %f54, %f55;
++	setp.lt.s32 	%p127, %r83, %r82;
++	and.pred  	%p179, %p126, %p127;
++
++$L__BB1_78:
++	selp.f32 	%f56, %f55, %f54, %p179;
++	mov.b32 	%r256, %f56;
++	mov.u32 	%r257, 31;
++	mov.u32 	%r258, 4;
++	mov.u32 	%r259, -1;
++	shfl.sync.bfly.b32 	%r260|%p129, %r256, %r258, %r257, %r259;
++	mov.b32 	%f57, %r260;
++	selp.b32 	%r84, %r83, %r82, %p179;
++	shfl.sync.bfly.b32 	%r85|%p130, %r84, %r258, %r257, %r259;
++	setp.gt.f32 	%p131, %f56, %f57;
++	mov.pred 	%p181, -1;
++	mov.pred 	%p180, %p181;
++	@%p131 bra 	$L__BB1_80;
++
++	setp.eq.f32 	%p132, %f56, %f57;
++	setp.lt.s32 	%p133, %r85, %r84;
++	and.pred  	%p180, %p132, %p133;
++
++$L__BB1_80:
++	selp.f32 	%f58, %f57, %f56, %p180;
++	mov.b32 	%r261, %f58;
++	mov.u32 	%r263, 2;
++	shfl.sync.bfly.b32 	%r265|%p135, %r261, %r263, %r257, %r259;
++	mov.b32 	%f59, %r265;
++	selp.b32 	%r86, %r85, %r84, %p180;
++	shfl.sync.bfly.b32 	%r87|%p136, %r86, %r263, %r257, %r259;
++	setp.gt.f32 	%p137, %f58, %f59;
++	@%p137 bra 	$L__BB1_82;
++
++	setp.eq.f32 	%p138, %f58, %f59;
++	setp.lt.s32 	%p139, %r87, %r86;
++	and.pred  	%p181, %p138, %p139;
++
++$L__BB1_82:
++	selp.f32 	%f60, %f59, %f58, %p181;
++	mov.b32 	%r266, %f60;
++	mov.u32 	%r267, 31;
++	mov.u32 	%r268, 1;
++	mov.u32 	%r269, -1;
++	shfl.sync.bfly.b32 	%r270|%p141, %r266, %r268, %r267, %r269;
++	mov.b32 	%f61, %r270;
++	selp.b32 	%r88, %r87, %r86, %p181;
++	shfl.sync.bfly.b32 	%r89|%p142, %r88, %r268, %r267, %r269;
++	setp.gt.f32 	%p143, %f60, %f61;
++	mov.pred 	%p182, -1;
++	@%p143 bra 	$L__BB1_84;
++
++	setp.eq.f32 	%p144, %f60, %f61;
++	setp.lt.s32 	%p145, %r89, %r88;
++	and.pred  	%p182, %p144, %p145;
++
++$L__BB1_84:
++	selp.b32 	%r271, %r89, %r88, %p182;
++	setp.eq.s32 	%p146, %r271, %r1;
++	selp.b32 	%r328, %r320, %r328, %p146;
++	setp.eq.s32 	%p147, %r271, %r37;
++	selp.b32 	%r327, %r320, %r327, %p147;
++	setp.eq.s32 	%p148, %r271, %r38;
++	selp.b32 	%r326, %r320, %r326, %p148;
++	setp.eq.s32 	%p149, %r271, %r39;
++	selp.b32 	%r325, %r320, %r325, %p149;
++
++$L__BB1_85:
++	mov.u32 	%r329, 0;
++	@%p150 bra 	$L__BB1_87;
++
++	cvt.s64.s32 	%rd76, %r328;
++	add.s64 	%rd77, %rd76, %rd13;
++	shl.b64 	%rd78, %rd77, 2;
++	add.s64 	%rd79, %rd3, %rd78;
++	ld.global.f32 	%f171, [%rd79];
++	sub.rn.f32 	%f172, %f171, %f196;
++	mul.rn.f32 	%f173, %f172, %f172;
++	mov.b32 	%r329, %f173;
++
++$L__BB1_87:
++	mov.f32 	%f65, 0f00000000;
++	mov.f32 	%f63, %f65;
++	@%p151 bra 	$L__BB1_89;
++
++	cvt.s64.s32 	%rd80, %r327;
++	add.s64 	%rd81, %rd80, %rd13;
++	shl.b64 	%rd82, %rd81, 2;
++	add.s64 	%rd83, %rd3, %rd82;
++	ld.global.f32 	%f175, [%rd83];
++	sub.rn.f32 	%f176, %f175, %f197;
++	mul.rn.f32 	%f63, %f176, %f176;
++
++$L__BB1_89:
++	@%p152 bra 	$L__BB1_91;
++
++	cvt.s64.s32 	%rd84, %r326;
++	add.s64 	%rd85, %rd84, %rd13;
++	shl.b64 	%rd86, %rd85, 2;
++	add.s64 	%rd87, %rd3, %rd86;
++	ld.global.f32 	%f178, [%rd87];
++	sub.rn.f32 	%f179, %f178, %f198;
++	mul.rn.f32 	%f65, %f179, %f179;
++
++$L__BB1_91:
++	mov.f32 	%f67, 0f00000000;
++	@%p153 bra 	$L__BB1_93;
++
++	cvt.s64.s32 	%rd88, %r325;
++	add.s64 	%rd89, %rd88, %rd13;
++	shl.b64 	%rd90, %rd89, 2;
++	add.s64 	%rd91, %rd3, %rd90;
++	ld.global.f32 	%f181, [%rd91];
++	sub.rn.f32 	%f182, %f181, %f199;
++	mul.rn.f32 	%f67, %f182, %f182;
++
++$L__BB1_93:
++	mov.b32 	%f68, %r329;
++	setp.gt.s32 	%p154, %r118, 63;
++	@%p154 bra 	$L__BB1_97;
++	bra.uni 	$L__BB1_94;
++
++$L__BB1_97:
++	add.rn.f32 	%f186, %f65, %f68;
++	add.rn.f32 	%f187, %f63, %f67;
++	add.rn.f32 	%f220, %f186, %f187;
++	bra.uni 	$L__BB1_98;
++
++$L__BB1_94:
++	setp.eq.s32 	%p155, %r118, 32;
++	@%p155 bra 	$L__BB1_96;
++	bra.uni 	$L__BB1_95;
++
++$L__BB1_96:
++	add.rn.f32 	%f184, %f63, %f68;
++	add.rn.f32 	%f185, %f184, %f65;
++	add.rn.f32 	%f220, %f185, %f67;
++	bra.uni 	$L__BB1_98;
++
++$L__BB1_95:
++	mov.u32 	%r273, 31;
++	mov.u32 	%r274, -1;
++	shfl.sync.bfly.b32 	%r275|%p156, %r329, %r118, %r273, %r274;
++	mov.b32 	%f183, %r275;
++	add.rn.f32 	%f220, %f68, %f183;
++
++$L__BB1_98:
++	mov.b32 	%r332, %f220;
++	setp.lt.s32 	%p157, %r41, 2;
++	@%p157 bra 	$L__BB1_101;
++
++	mov.u32 	%r331, 1;
++
++$L__BB1_100:
++	mov.u32 	%r277, 31;
++	mov.u32 	%r278, -1;
++	shfl.sync.bfly.b32 	%r279|%p158, %r332, %r331, %r277, %r278;
++	mov.b32 	%f188, %r279;
++	add.rn.f32 	%f220, %f220, %f188;
++	shl.b32 	%r331, %r331, 1;
++	setp.lt.s32 	%p159, %r331, %r41;
++	mov.b32 	%r332, %f220;
++	@%p159 bra 	$L__BB1_100;
++
++$L__BB1_101:
++	mov.u32 	%r280, 31;
++	mov.u32 	%r281, 0;
++	mov.u32 	%r282, -1;
++	shfl.sync.idx.b32 	%r106|%p160, %r332, %r281, %r280, %r282;
++	@%p161 bra 	$L__BB1_103;
++
++	cvt.s64.s32 	%rd92, %r308;
++	add.s64 	%rd93, %rd7, %rd92;
++	shl.b64 	%rd94, %rd93, 2;
++	add.s64 	%rd95, %rd12, %rd94;
++	st.global.u32 	[%rd95], %r106;
++
++$L__BB1_103:
++	ld.param.u32 	%r283, [ki8_select_param_9];
++	mov.b32 	%f189, %r106;
++	setp.eq.s32 	%p162, %r308, 0;
++	setp.gt.f32 	%p163, %f204, %f189;
++	or.pred  	%p164, %p162, %p163;
++	selp.b32 	%r333, %r325, %r333, %p164;
++	selp.b32 	%r334, %r326, %r334, %p164;
++	selp.b32 	%r335, %r327, %r335, %p164;
++	selp.b32 	%r336, %r328, %r336, %p164;
++	selp.f32 	%f204, %f189, %f204, %p164;
++	add.s32 	%r308, %r308, 1;
++	setp.lt.s32 	%p165, %r308, %r283;
++	@%p165 bra 	$L__BB1_32;
++
++$L__BB1_104:
++	mov.u32 	%r286, %ntid.x;
++	mov.u32 	%r285, %ctaid.x;
++	mov.u32 	%r284, %tid.x;
++	cvt.u64.u32 	%rd107, %r284;
++	mul.wide.u32 	%rd106, %r285, %r286;
++	add.s64 	%rd105, %rd106, %rd107;
++	cvt.s64.s32 	%rd104, %r116;
++	shr.u64 	%rd103, %rd105, 5;
++	cvt.u64.u32 	%rd102, %r1;
++	mul.lo.s64 	%rd101, %rd103, %rd104;
++	add.s64 	%rd100, %rd101, %rd102;
++	ld.param.u64 	%rd99, [ki8_select_param_5];
++	cvta.to.global.u64 	%rd98, %rd99;
++	add.s64 	%rd19, %rd98, %rd100;
++	setp.ge.s32 	%p166, %r1, %r116;
++	@%p166 bra 	$L__BB1_106;
++
++	st.global.u8 	[%rd19], %r336;
++
++$L__BB1_106:
++	setp.ge.s32 	%p167, %r37, %r116;
++	@%p167 bra 	$L__BB1_108;
++
++	st.global.u8 	[%rd19+32], %r335;
++
++$L__BB1_108:
++	setp.ge.s32 	%p168, %r38, %r116;
++	@%p168 bra 	$L__BB1_110;
++
++	st.global.u8 	[%rd19+64], %r334;
++
++$L__BB1_110:
++	setp.ge.s32 	%p169, %r39, %r116;
++	@%p169 bra 	$L__BB1_112;
++
++	st.global.u8 	[%rd19+96], %r333;
++
++$L__BB1_112:
++	ret;
++
++}
+diff --git a/ki8_lora/peak.py b/ki8_lora/peak.py
+index 096e6f0..23d426b 100644
+--- a/ki8_lora/peak.py
++++ b/ki8_lora/peak.py
+@@ -60,27 +60,24 @@ def _embed(q, target, normalized, radius, levels, labels, signature, peak_lane):
+     return q
+ 
+ 
+-def _pack_groups(blocks, group, fixed_radius):
+-    vals = blocks.float()
+-    a = vals.abs()
+-    peak, pos = a.max(-1, keepdim=True)
+-    # The compact header covers binary exponents -16..15. Finite tails outside
+-    # that window use an unmarked ordinary block and a full exponent byte.
+-    b16 = peak.to(torch.bfloat16).view(torch.int16).int() & 32767
+-    exp = (b16 >> 7) - 127
+-    compact = (exp >= -16) & (exp <= 15)
+-    norm_peak = torch.ldexp(1.0 + (b16 & 127).float() / 128, exp.clamp(-16, 15))
+-    # Bound the irrelevant compact candidate for extreme blocks before SSE.
+-    normalized = (a / norm_peak).clamp_max_(2)
+-    size = a.shape[-1]
++def _select_modes(normalized, pos, group, fixed_radius):
++    size = normalized.shape[-1]
+     width = min(3, size.bit_length() - 1)
+-    peak_lane = torch.arange(size, device=a.device) == pos
+-    levels, mids = _tables(group, a.device)
++    modes = 1 if fixed_radius else (1 << width)
++    device = normalized.device
+     cuda_engine = None
+-    if a.is_cuda and engines.policy() != "reference" and pos.numel() <= 2147483647:
++    policy = engines.policy()
++    if normalized.is_cuda and policy != "reference" and pos.numel() <= 2147483647:
+         from . import cuda_peak
+ 
+-        cuda_engine = cuda_peak.module(a.device)
++        cuda_engine = cuda_peak.module(device)
++        if cuda_engine is not None and policy == "auto":
++            best = cuda_engine.select(normalized, pos, group, modes)
++            if best is not None:
++                return best
++
++    peak_lane = torch.arange(size, device=device) == pos
++    levels, mids = _tables(group, device)
+     labels = signature = None
+     if width and cuda_engine is None:
+         labels = _labels(pos, size, width)
+@@ -98,10 +95,10 @@ def _pack_groups(blocks, group, fixed_radius):
+         return q, residual.square().sum(-1, keepdim=True)
+ 
+     best_q, best_error = candidate(0, normalized, peak_lane, labels, signature)
+-    modes = 1 if fixed_radius else (1 << width)
+-    runner = normalized.masked_fill(peak_lane, 0).amax(-1, keepdim=True)
++    if device.type == "cpu" and modes > 1:
++        runner = normalized.masked_fill(peak_lane, 0).amax(-1, keepdim=True)
+     for index in range(1, modes):
+-        if a.device.type == "cpu":
++        if device.type == "cpu":
+             # The runner-up alone supplies a lower bound on the candidate SSE.
+             # Descending radii make the rejected suffix final; equality cannot
+             # win because the first minimum wins ties. CPU compaction saves work.
+@@ -120,6 +117,22 @@ def _pack_groups(blocks, group, fixed_radius):
+             q, error = candidate(index, normalized, peak_lane, labels, signature)
+             best_q = torch.where(error < best_error, q, best_q)
+             best_error = torch.minimum(best_error, error)
++    return best_q
++
++
++def _pack_groups(blocks, group, fixed_radius):
++    vals = blocks.float()
++    a = vals.abs()
++    peak, pos = a.max(-1, keepdim=True)
++    # The compact header covers binary exponents -16..15. Finite tails outside
++    # that window use an unmarked ordinary block and a full exponent byte.
++    b16 = peak.to(torch.bfloat16).view(torch.int16).int() & 32767
++    exp = (b16 >> 7) - 127
++    compact = (exp >= -16) & (exp <= 15)
++    norm_peak = torch.ldexp(1.0 + (b16 & 127).float() / 128, exp.clamp(-16, 15))
++    # Bound the irrelevant compact candidate for extreme blocks before SSE.
++    normalized = (a / norm_peak).clamp_max_(2)
++    best_q = _select_modes(normalized, pos, group, fixed_radius)
+     best_q.scatter_(-1, pos, (112 + (b16 & 15)).to(best_q.dtype))
+     header = (exp + 16) * 8 + ((b16 & 127) >> 4)
+     # powers are finite across the BF16 range, including tiny subnormals.
+diff --git a/run.py b/run.py
+index c6c7f35..ac1ed6b 100644
+--- a/run.py
++++ b/run.py
+@@ -2,6 +2,7 @@
+ 
+ import argparse
+ import json
++import os
+ from pathlib import Path
+ import sys
+ import torch
+@@ -14,6 +15,8 @@ def main():
+     s = p.add_subparsers(dest="cmd", required=True)
+     ck = s.add_parser("check", help="Run the CPU suite, plus native CUDA checks if selected")
+     ck.add_argument("--device", default="cpu")
++    ck.add_argument("--require-a16", action="store_true",
++                    help="Fail unless the 1.5.0-rc3 W8A16 checkpoint path runs on the native W32 decoder")
+     sm = s.add_parser(
+         "smoke-moss",
+         help="Rebuild a tiny MOSS fixture using the pinned official modeling code and test v1.2 compatibility",
+@@ -73,6 +76,8 @@ def main():
+             sub.add_argument("--" + flag, type=int, default=n)
+         sub.add_argument("--out", type=Path)
+         sub.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
++        if command == "bench-speed":
++            sub.add_argument("--profile", choices=("peak8", "peak8-a16"), default="peak8")
+     new = s.add_parser("evaluate-peak", help="Evaluate the 1.5 codec against 1.4")
+     new.add_argument("suite", choices=["projections", "controls", "digits", "moss", "cifar"])
+     new.add_argument("--moss-cache", type=Path, default=Path("moss-probe-cache"))
+@@ -193,6 +198,8 @@ def main():
+             if name == "qwen":
+                 sub.add_argument("--offload", choices=["model", "none"], default="model")
+     args = p.parse_args()
++    if getattr(args, "profile", None) == "peak8-a16":
++        os.environ["KI8_REQUIRE_A16"] = "1"
+     torch.set_float32_matmul_precision("highest")
+     if torch.cuda.is_available():
+         torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = False
+@@ -213,7 +220,16 @@ def main():
+         if torch.device(args.device).type == "cuda":
+             from tests.cuda_check import check
+ 
+-            print(json.dumps(check(args.device), indent=2))
++            report = check(args.device)
++            print(json.dumps(report, indent=2))
++            if args.require_a16:
++                backend = report["a16_checkpoint"]["backend"]
++                if backend.get("a16_decode") != "native-w32":
++                    print("W8A16 decoder is not native-w32: " + json.dumps(backend), file=sys.stderr)
++                    sys.exit(2)
++        elif args.require_a16:
++            print("--require-a16 needs --device cuda", file=sys.stderr)
++            sys.exit(2)
+         return
+     if args.cmd == "download-moss":
+         from tools.moss_io import download
+diff --git a/tests/cuda_check.py b/tests/cuda_check.py
+index c588666..3581aae 100644
+--- a/tests/cuda_check.py
++++ b/tests/cuda_check.py
+@@ -5,7 +5,7 @@ import tempfile
+ import torch
+ from torch import nn
+ from safetensors.torch import save_file
+-from ki8_lora import engines, install, peak
++from ki8_lora import engines, install, pack_checkpoint, peak
+ from ki8_lora.formats import round_input
+ from ki8_lora.formats import unpack
+ 
+@@ -56,6 +56,63 @@ def _one(device, profile):
+     return results
+ 
+ 
++@torch.inference_mode()
++def _a16_checkpoint(device):
++    """Round-trip a real 1.5.0-rc3 (Peak8 weights, BF16 activations) checkpoint.
++
++    `_one` only installs fresh weights through a profile name. W8A16 checkpoints
++    carry their own manifest (activation_format=bf16, version=1.5.0-rc3), and the
++    optimized W32 decoder has to produce the same bytes as the reference path.
++    """
++    dev = torch.device(device)
++    if dev.type != "cuda" or not torch.cuda.is_available():
++        raise RuntimeError("CUDA is required for the W8A16 checkpoint check.")
++    cases = ((347, 511, 43, 31, 79), (3072, 9216, 128, 256, 64))
++    results = []
++    for out_features, in_features, output_tile, token_tile, tokens in cases:
++        g = torch.Generator().manual_seed(703 + out_features)
++        src = nn.Sequential(nn.Linear(in_features, out_features, bias=True)).bfloat16().eval()
++        with torch.no_grad():
++            src[0].weight.copy_(torch.randn(out_features, in_features, generator=g) * 0.02)
++            src[0].bias.copy_(torch.randn(out_features, generator=g) * 0.01)
++        with tempfile.TemporaryDirectory() as root:
++            packed = Path(root) / "a16"
++            meta = pack_checkpoint(src, packed, tile=128, device="cpu", profile="peak8-a16")
++            if meta.get("version") != "1.5.0-rc3":
++                raise RuntimeError("W8A16 checkpoints must declare 1.5.0-rc3")
++            dst = nn.Sequential(nn.Linear(in_features, out_features, bias=True)).bfloat16().eval()
++            dst.load_state_dict(src.state_dict())
++            install(dst, packed=packed, output_tile=output_tile, token_tile=token_tile)
++            dst.to(dev).eval()
++            layer = dst[0]
++            if (layer.weight_format, layer.activation_format) != ("peak8", "bf16"):
++                raise RuntimeError("A 1.5.0-rc3 checkpoint must install as Peak8 weights + BF16 activations")
++            x = torch.randn(tokens, in_features, generator=g, dtype=torch.bfloat16).to(dev) * 0.05
++            with engines.execution("reference"):
++                reference = dst(x)
++            with engines.execution("auto"):
++                optimized = dst(x)
++            if not torch.equal(reference.view(torch.int16), optimized.view(torch.int16)):
++                delta = (reference.float() - optimized.float()).abs().max().item()
++                raise RuntimeError(f"W8A16 auto/reference mismatch at {out_features}x{in_features}: {delta}")
++        results.append(
++            {
++                "shape": [out_features, in_features],
++                "token_tile": token_tile,
++                "output_tile": output_tile,
++                "weight_format": "peak8",
++                "activation_format": "bf16",
++                "bit_identical": True,
++            }
++        )
++    return {
++        "version": "1.5.0-rc3",
++        "cases": results,
++        "bit_identical": True,
++        "backend": engines.backend_info(dev),
++    }
++
++
+ @torch.inference_mode()
+ def _wire_and_stream(device):
+     dev = torch.device(device)
+@@ -67,23 +124,25 @@ def _wire_and_stream(device):
+     samples = 0
+     with torch.cuda.stream(stream):
+         for group in (32, 128):
+-            for k in (3, group - 1, group, 257, 512):
++            for k in (1, 3, group - 1, group, 257, 512):
+                 for dt in (torch.float32, torch.bfloat16):
+                     x = torch.randn(29, k, generator=rng).to(device=dev, dtype=dt)
+                     x[0].fill_(-0.0)
+                     x[1].mul_(2.0**19)
+                     x[2].mul_(2.0**-28)
+                     x[3].fill_(1.0)
+-                    with engines.execution("reference"):
+-                        raw, head = peak.pack(x, group)
+-                        y = peak.unpack(raw, head, group, torch.bfloat16)
+-                    with engines.execution("auto"):
+-                        e, h = peak.pack(x, group)
+-                        z = peak.unpack(e, h, group, torch.bfloat16)
+-                    for old, new in ((raw, e), (head, h), (y.view(torch.int16), z.view(torch.int16))):
+-                        if not torch.equal(old, new):
+-                            raise RuntimeError("On-device optimized/reference Peak8 bytes differ")
+-                    samples += x.numel()
++                    for fixed in (False, True):
++                        with engines.execution("reference"):
++                            raw, head = peak.pack(x, group, fixed_radius=fixed)
++                            y = peak.unpack(raw, head, group, torch.bfloat16)
++                        for policy in ("auto", "release"):
++                            with engines.execution(policy):
++                                e, h = peak.pack(x, group, fixed_radius=fixed)
++                                z = peak.unpack(e, h, group, torch.bfloat16)
++                            comparisons = ((raw, e), (head, h), (y.view(torch.int16), z.view(torch.int16)))
++                            if not all(torch.equal(old, new) for old, new in comparisons):
++                                raise RuntimeError(f"On-device {policy}/reference Peak8 bytes differ")
++                        samples += x.numel()
+     stream.synchronize()
+     return {"engine": actual_backend, "wire_elements": samples, "identical": True}
+ 
+@@ -93,5 +152,6 @@ def check(device):
+         "device": torch.cuda.get_device_name(device),
+         "torch": torch.__version__,
+         "wire_check": _wire_and_stream(device),
+-        "profiles": {name: _one(device, name) for name in ("fast", "peak8")},
++        "profiles": {name: _one(device, name) for name in ("fast", "peak8", "peak8-a16")},
++        "a16_checkpoint": _a16_checkpoint(device),
+     }
+diff --git a/tools/speed.py b/tools/speed.py
+index 1e6ae77..7d5d553 100644
+--- a/tools/speed.py
++++ b/tools/speed.py
+@@ -21,11 +21,12 @@ def evaluate(args):
+     w = torch.randn(o, k, dtype=torch.bfloat16, generator=rng) / k**0.5
+     a, b = (torch.randn(sh, dtype=torch.bfloat16, generator=rng) * 0.02 for sh in ((r, k), (o, r)))
+     x = torch.randn(n, k, dtype=torch.bfloat16, generator=rng).to(d)
++    peak_profile = getattr(args, "profile", "peak8")
+     layouts = {}
+     with tempfile.TemporaryDirectory() as tmp:
+         file = Path(tmp) / "adapter.safetensors"
+         save_file({"0.lora_A.weight": a, "0.lora_B.weight": b}, str(file))
+-        for profile in ("fast", "peak8"):
++        for profile in ("fast", peak_profile):
+             layer = nn.Linear(k, o, bias=False, device="meta")
+             layer.weight = nn.Parameter(w, requires_grad=False)
+             model = nn.Sequential(layer).eval()
+@@ -39,9 +40,11 @@ def evaluate(args):
+             layouts[profile] = model
+     profiles = {
+         "v14_fast": ("fast", "reference"),
+-        "v15_reference": ("peak8", "reference"),
+-        "v15_optimized": ("peak8", "auto"),
++        "v15_reference": (peak_profile, "reference"),
++        "v15_optimized": (peak_profile, "auto"),
+     }
++    if d.type == "cuda":
++        profiles["v15_release"] = (peak_profile, "release")
+ 
+     def sync():
+         if d.type == "cuda":
+@@ -52,15 +55,16 @@ def evaluate(args):
+         with engines.execution(backend):
+             return layouts[profile](x)
+ 
+-    # Warm both engines and reject any numerical regression before timing.
++    # Reject any numerical drift before timing the paired Peak8 paths.
+     previous = forward("v15_reference")
+-    current = forward("v15_optimized")
+-    equal = torch.equal(previous.view(torch.int16), current.view(torch.int16))
+-    if not equal:
+-        raise RuntimeError(
+-            f"Peak8 output parity failed: {(previous.float() - current.float()).abs().max().item()}"
+-        )
+-    del previous, current
++    for label in ("v15_optimized", "v15_release"):
++        if label in profiles:
++            current = forward(label)
++            if not torch.equal(previous.view(torch.int16), current.view(torch.int16)):
++                error = (previous.float() - current.float()).abs().max().item()
++                raise RuntimeError(f"Peak8 output parity failed for {label}: {error}")
++            del current
++    del previous
+     for key in profiles:
+         forward(key)
+         sync()
+@@ -82,15 +86,22 @@ def evaluate(args):
+                 peaks[key].append((torch.cuda.max_memory_allocated(d) - idle) / 2**20)
+             del v
+     median = {key: statistics.median(values) for key, values in measurements.items()}
+-    packed = layouts["peak8"][0]
++    packed = layouts[peak_profile][0]
++    installed = (packed.weight_format, packed.activation_format)
++    if peak_profile == "peak8-a16" and installed != ("peak8", "bf16"):
++        raise RuntimeError(f"peak8-a16 installed as {installed}, not Peak8 weights + BF16 activations")
+     with engines.execution("auto"):
+         actual_backend = engines.backend_info(d)
+-    return {
++    if peak_profile == "peak8-a16" and actual_backend.get("a16_decode") != "native-w32":
++        raise RuntimeError("peak8-a16 did not reach the native W32 decoder: " + str(actual_backend))
++    result = {
+         "device": str(d),
+         "device_name": torch.cuda.get_device_name(d) if d.type == "cuda" else "CPU",
+         "torch": torch.__version__,
+         "threads": torch.get_num_threads(),
+         "shape": [o, k],
++        "profile": peak_profile,
++        "installed": list(installed) if installed else None,
+         "tokens": n,
+         "rank": r,
+         "token_tile": args.token_tile,
+@@ -98,7 +109,7 @@ def evaluate(args):
+         "iterations": args.iterations,
+         "active_backend": actual_backend,
+         "lora_strength": 1.0,
+-        "bit_identical_output": equal,
++        "bit_identical_output": True,
+         "resident_weight_bytes": packed.elements.numel() + packed.scales.numel(),
+         "resident_adapter_bytes": 2 * (a.numel() + b.numel()),
+         "median_ms": median,
+@@ -107,3 +118,6 @@ def evaluate(args):
+         "speedup_over_v14_fast": median["v14_fast"] / median["v15_optimized"],
+         "cuda_peak_increment_mib": {k: max(v) for k, v in peaks.items() if v},
+     }
++    if "v15_release" in median:
++        result["speedup_over_v15_release"] = median["v15_release"] / median["v15_optimized"]
++    return result

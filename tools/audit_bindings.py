@@ -103,16 +103,16 @@ def bindings() -> list[Binding]:
 
     # ---------------- README headline ----------------
     out += [
-        B("README.md", "27B reference  19.02 GiB",
+        B("docs/12-budget-archive.md", "27B reference  19.02 GiB",
           lambda: (t(est(ref_27b, "ref")["vram_gib"]),
                    est(ref_27b, "ref")["vram_gib"]), "27B vram"),
-        B("README.md", "P1 target       6.45 GiB",
+        B("docs/12-budget-archive.md", "P1 target       6.45 GiB",
           lambda: (t(est(p1, "p1")["vram_gib"]),
                    est(p1, "p1")["vram_gib"]), "P1 vram"),
-        B("README.md", "headroom +0.55",
+        B("docs/12-budget-archive.md", "headroom +0.55",
           lambda: (t(7.0 - est(p1, "p1")["vram_gib"]),
                    7.0 - est(p1, "p1")["vram_gib"]), "P1 headroom"),
-        B("README.md", "over by 12.02",
+        B("docs/12-budget-archive.md", "over by 12.02",
           lambda: (t(est(ref_27b, "ref")["spill_gib"]),
                    est(ref_27b, "ref")["spill_gib"]), "27B deficit"),
     ]
@@ -121,35 +121,35 @@ def bindings() -> list[Binding]:
     p1_278 = lambda: est(p1, "p1", bw_vram_gbps=278.0)
     low_278 = lambda: est(p1_low, "p1l", bw_vram_gbps=278.0)
     out += [
-        B("README.md", "| 参数 / 权重 | 10.15B / 4.89 GiB",
+        B("docs/12-budget-archive.md", "| 参数 / 权重 | 10.15B / 4.89 GiB",
           lambda: (f"{t(p1_278()['params_total_b'])}B / "
                    f"{t(p1_278()['weights_gib']['total'])} GiB",
                    p1_278()["params_total_b"]), "P1 params/weights"),
-        B("README.md", "| 显存 / 余量 |",
+        B("docs/12-budget-archive.md", "| 显存 / 余量 |",
           lambda: (t(p1_278()["vram_gib"]), p1_278()["vram_gib"]), "P1 vram row"),
-        B("README.md", "| 参考机（3070 Ti，278 GB/s）",
+        B("docs/12-budget-archive.md", "| 参考机（3070 Ti，278 GB/s）",
           lambda: (t(p1_278()["decode_tok_s_ceiling"], 1),
                    p1_278()["decode_tok_s_ceiling"]), "P1 tps @278"),
-        B("README.md", "| RTX 4060 8G（169 GB/s）",
+        B("docs/12-budget-archive.md", "| RTX 4060 8G（169 GB/s）",
           lambda: (t(tier("p1", 169.0)["decode_tok_s_ceiling"], 1),
                    tier("p1", 169.0)["decode_tok_s_ceiling"]), "P1 @4060"),
-        B("README.md", "| RTX 3060 6G（208 GB/s）",
+        B("docs/12-budget-archive.md", "| RTX 3060 6G（208 GB/s）",
           lambda: (t(tier("p1", 208.0)["decode_tok_s_ceiling"], 1),
                    tier("p1", 208.0)["decode_tok_s_ceiling"]), "P1 @3060"),
-        B("README.md", "| **RTX 3050 8G（139 GB/s）**",
+        B("docs/12-budget-archive.md", "| **RTX 3050 8G（139 GB/s）**",
           lambda: (t(tier("p1", 139.0)["decode_tok_s_ceiling"], 1),
                    tier("p1", 139.0)["decode_tok_s_ceiling"]), "P1 @3050"),
     ]
 
     # ---------------- README envelope ----------------
     out += [
-        B("README.md", "| 显存 | 8 GiB |",
+        B("docs/12-budget-archive.md", "| 显存 | 8 GiB |",
           lambda: ("7.00", 7.00), "usable vram"),
-        B("README.md", "| 内存 | 16 GB |",
+        B("docs/12-budget-archive.md", "| 内存 | 16 GB |",
           lambda: ("15.19", 15.19), "visible ram"),
-        B("README.md", "| 内存带宽 | 5600 MT/s",
+        B("docs/12-budget-archive.md", "| 内存带宽 | 5600 MT/s",
           lambda: ("19.3", 19.3), "measured ram bw"),
-        B("README.md", "| PCIe | Gen4 x16 |",
+        B("docs/12-budget-archive.md", "| PCIe | Gen4 x16 |",
           lambda: ("x8", 0.0), "pcie width"),
     ]
 
@@ -170,13 +170,13 @@ def bindings() -> list[Binding]:
         raise KeyError(field)
 
     out += [
-        B("README.md", "| 62 | 27.01B |",
+        B("docs/12-budget-archive.md", "| 62 | 27.01B |",
           lambda: (t(sweep(62, "weights")), sweep(62, "weights")),
           "L62 weights"),
-        B("README.md", "| 24 | 11.32B |",
+        B("docs/12-budget-archive.md", "| 24 | 11.32B |",
           lambda: (t(sweep(24, "weights")), sweep(24, "weights")),
           "L24 weights"),
-        B("README.md", "| 24 | 11.32B |",
+        B("docs/12-budget-archive.md", "| 24 | 11.32B |",
           lambda: (f"+{t(sweep(24, 'spill'))}", sweep(24, "spill")),
           "L24 deficit"),
     ]
