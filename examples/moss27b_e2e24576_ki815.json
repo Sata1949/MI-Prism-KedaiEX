@@ -1,495 +1,497 @@
 {
-  "last_node_id": 16,
-  "last_link_id": 14,
-  "nodes": [
+ "last_node_id": 16,
+ "last_link_id": 14,
+ "nodes": [
+  {
+   "id": 1,
+   "type": "MossTE27BEncodePair",
+   "pos": [
+    60,
+    120
+   ],
+   "size": [
+    440,
+    420
+   ],
+   "flags": {},
+   "order": 0,
+   "mode": 0,
+   "inputs": [],
+   "outputs": [
     {
-      "id": 1,
-      "type": "MossTE27BEncodePair",
-      "pos": [
-        60,
-        120
-      ],
-      "size": [
-        440,
-        420
-      ],
-      "flags": {},
-      "order": 0,
-      "mode": 0,
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "positive",
-          "type": "CONDITIONING",
-          "links": [
-            1
-          ],
-          "slot_index": 0
-        },
-        {
-          "name": "negative",
-          "type": "CONDITIONING",
-          "links": [
-            2
-          ],
-          "slot_index": 1
-        },
-        {
-          "name": "report",
-          "type": "STRING",
-          "links": [
-            9
-          ],
-          "slot_index": 2
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "MossTE27BEncodePair"
-      },
-      "widgets_values": [
-        "A photorealistic photograph of an adult Black woman in her late twenties standing knee-deep in the shallow surf of a tropical beach at golden hour. She wears a simple black string bikini, warm amber rim light along her arm and hip, deep turquoise water at her ankles, soft haze and visible film grain, landscape orientation, 35 mm lens, shallow depth of field.",
-        "worst quality, low quality, bad anatomy, bad hands, extra fingers, fused fingers, bad feet, extra legs, deformed torso, plastic skin, waxy skin, airbrushed, oversaturated, blown highlights, flat lighting, watermark, signature, text, logo, blurry, low contrast, cartoon, anime, illustration, 3d render, cgi",
-        "D:/moss-image/kedaiEX1_20261122/models_root/enc27b_headless.gguf",
-        "D:/moss-image/kedaiEX1_20261122/models_root/llama-cuda/llama-server.exe",
-        "D:/moss-image/kedaiEX1_20261122/models_root/KedaiEX1-Adapter.safetensors",
-        "D:/moss-image/kedaiEX1_20261122/models_root/first_token.npz",
-        99,
-        4096,
-        2048,
-        16,
-        8411,
-        true
-      ],
-      "title": "27B TE + e2e_24576 · pos+neg"
+     "name": "positive",
+     "type": "CONDITIONING",
+     "links": [
+      1
+     ],
+     "slot_index": 0
     },
     {
-      "id": 3,
-      "type": "UNETLoader",
-      "pos": [
-        540,
-        120
-      ],
-      "size": [
-        360,
-        82
-      ],
-      "flags": {},
-      "order": 1,
-      "mode": 0,
-      "outputs": [
-        {
-          "name": "MODEL",
-          "type": "MODEL",
-          "links": [
-            3
-          ],
-          "slot_index": 0
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "UNETLoader"
-      },
-      "widgets_values": [
-        "MI-DIT-Prism-KedaiEX1_ki8_15peak8.safetensors",
-        "default"
-      ]
+     "name": "negative",
+     "type": "CONDITIONING",
+     "links": [
+      2
+     ],
+     "slot_index": 1
     },
     {
-      "id": 5,
-      "type": "KI8DecodeCache",
-      "pos": [
-        540,
-        250
-      ],
-      "size": [
-        340,
-        82
-      ],
-      "flags": {},
-      "order": 2,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "model",
-          "type": "MODEL",
-          "link": 3
-        }
-      ],
-      "outputs": [
-        {
-          "name": "model",
-          "type": "MODEL",
-          "links": [
-            4
-          ],
-          "slot_index": 0
-        },
-        {
-          "name": "status",
-          "type": "STRING",
-          "links": [],
-          "slot_index": 1
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "KI8DecodeCache"
-      },
-      "widgets_values": [
-        0.0
-      ]
-    },
-    {
-      "id": 6,
-      "type": "EmptyFlux2LatentImage",
-      "pos": [
-        540,
-        380
-      ],
-      "size": [
-        340,
-        106
-      ],
-      "flags": {},
-      "order": 3,
-      "mode": 0,
-      "outputs": [
-        {
-          "name": "LATENT",
-          "type": "LATENT",
-          "links": [
-            5
-          ],
-          "slot_index": 0
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "EmptyFlux2LatentImage"
-      },
-      "widgets_values": [
-        1024,
-        1024,
-        1
-      ]
-    },
-    {
-      "id": 7,
-      "type": "KSampler",
-      "pos": [
-        940,
-        120
-      ],
-      "size": [
-        320,
-        262
-      ],
-      "flags": {},
-      "order": 4,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "model",
-          "type": "MODEL",
-          "link": 4
-        },
-        {
-          "name": "positive",
-          "type": "CONDITIONING",
-          "link": 1
-        },
-        {
-          "name": "negative",
-          "type": "CONDITIONING",
-          "link": 2
-        },
-        {
-          "name": "latent_image",
-          "type": "LATENT",
-          "link": 5
-        }
-      ],
-      "outputs": [
-        {
-          "name": "LATENT",
-          "type": "LATENT",
-          "links": [
-            6
-          ],
-          "slot_index": 0
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "KSampler"
-      },
-      "widgets_values": [
-        20261121,
-        "fixed",
-        12,
-        2.5,
-        "er_sde",
-        "simple",
-        1
-      ]
-    },
-    {
-      "id": 8,
-      "type": "VAELoader",
-      "pos": [
-        940,
-        430
-      ],
-      "size": [
-        320,
-        60
-      ],
-      "flags": {},
-      "order": 5,
-      "mode": 0,
-      "outputs": [
-        {
-          "name": "VAE",
-          "type": "VAE",
-          "links": [
-            7
-          ],
-          "slot_index": 0
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "VAELoader"
-      },
-      "widgets_values": [
-        "flux2-vae_small.safetensors"
-      ]
-    },
-    {
-      "id": 9,
-      "type": "VAEDecode",
-      "pos": [
-        1300,
-        120
-      ],
-      "size": [
-        220,
-        46
-      ],
-      "flags": {},
-      "order": 6,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "samples",
-          "type": "LATENT",
-          "link": 6
-        },
-        {
-          "name": "vae",
-          "type": "VAE",
-          "link": 7
-        }
-      ],
-      "outputs": [
-        {
-          "name": "IMAGE",
-          "type": "IMAGE",
-          "links": [
-            8
-          ],
-          "slot_index": 0
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "VAEDecode"
-      }
-    },
-    {
-      "id": 10,
-      "type": "SaveImage",
-      "pos": [
-        1300,
-        220
-      ],
-      "size": [
-        340,
-        320
-      ],
-      "flags": {},
-      "order": 7,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "images",
-          "type": "IMAGE",
-          "link": 8
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "SaveImage"
-      },
-      "widgets_values": [
-        "moss27b/e2e24576-ki814"
-      ]
-    },
-    {
-      "id": 11,
-      "type": "PreviewAny",
-      "pos": [
-        540,
-        540
-      ],
-      "size": [
-        340,
-        200
-      ],
-      "flags": {},
-      "order": 8,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "source",
-          "type": "*",
-          "link": 9
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "PreviewAny"
-      },
-      "widgets_values": []
-    },
-    {
-      "id": 12,
-      "type": "Note",
-      "pos": [
-        60,
-        580
-      ],
-      "size": [
-        440,
-        340
-      ],
-      "flags": {},
-      "order": 9,
-      "mode": 0,
-      "properties": {},
-      "widgets_values": [
-        "MOSS-Image · 27B TE (e2e_24576) + KI8 1.5.0-rc3\n\n链路 text→cond：\ntext → llama-server (--pooling none --embeddings) → [S,5120] → adapter_e2e_24576 (5120→2048×2→4096) → CONDITIONING\n\n链路 cond→图：\nUNETLoader → KI8DecodeCache → KSampler(er_sde/simple) → VAEDecode → SaveImage\n\n实测（RTX 4090 Laptop 16GB, 1024², 12 步, cfg 2.5）：\n· pos+neg 单次 boot 编码 11.4s（拆两节点 17.4s）\n· 端到端 44.5–45.2s（拆两节点 59.4–61.2s）\n· 27B 编码完必须释放，否则 11GiB 与 DiT 抢显存\n\n开关说明：\n· KI8DecodeCache=0 → 16GB 卡必须关；开 4.9GiB 会额外占 9.47GiB\n· KI8DecodeLUT / KI8TritonDecode 是全局开关，改了影响下一次采样；实测 1024²/12 步三臂差 <0.3s（瓶颈在注意力与 VAE，不在权重解码）"
-      ]
+     "name": "report",
+     "type": "STRING",
+     "links": [
+      9
+     ],
+     "slot_index": 2
     }
-  ],
-  "links": [
-    [
-      1,
-      1,
-      0,
-      7,
-      1,
-      "CONDITIONING"
-    ],
-    [
-      2,
-      1,
-      1,
-      7,
-      2,
-      "CONDITIONING"
-    ],
-    [
-      3,
-      3,
-      0,
-      5,
-      0,
-      "MODEL"
-    ],
-    [
-      4,
-      5,
-      0,
-      7,
-      0,
-      "MODEL"
-    ],
-    [
-      5,
-      6,
-      0,
-      7,
-      3,
-      "LATENT"
-    ],
-    [
-      6,
-      7,
-      0,
-      9,
-      0,
-      "LATENT"
-    ],
-    [
-      7,
-      8,
-      0,
-      9,
-      1,
-      "VAE"
-    ],
-    [
-      8,
-      9,
-      0,
-      10,
-      0,
-      "IMAGE"
-    ],
-    [
-      9,
-      1,
-      2,
-      11,
-      0,
-      "STRING"
-    ]
-  ],
-  "groups": [
-    {
-      "title": "27B 文本编码 · Qwen3.8-27B + e2e_24576",
-      "bounding": [
-        40,
-        60,
-        480,
-        880
-      ],
-      "color": "#3f789e"
-    },
-    {
-      "title": "KI8 1.5.0-rc3 DiT",
-      "bounding": [
-        520,
-        60,
-        380,
-        450
-      ],
-      "color": "#8A8"
-    },
-    {
-      "title": "采样 / 解码 / 保存",
-      "bounding": [
-        920,
-        60,
-        760,
-        620
-      ],
-      "color": "#b06634"
-    }
-  ],
-  "config": {},
-  "extra": {
-    "ds": {
-      "scale": 0.7,
-      "offset": [
-        20,
-        30
-      ]
-    }
+   ],
+   "properties": {
+    "Node name for S&R": "MossTE27BEncodePair"
+   },
+   "widgets_values": [
+    "A photorealistic photograph of an adult Black woman in her late twenties standing knee-deep in the shallow surf of a tropical beach at golden hour. She wears a simple black string bikini, warm amber rim light along her arm and hip, deep turquoise water at her ankles, soft haze and visible film grain, landscape orientation, 35 mm lens, shallow depth of field.",
+    "worst quality, low quality, bad anatomy, bad hands, extra fingers, fused fingers, bad feet, extra legs, deformed torso, plastic skin, waxy skin, airbrushed, oversaturated, blown highlights, flat lighting, watermark, signature, text, logo, blurry, low contrast, cartoon, anime, illustration, 3d render, cgi",
+    "D:/moss-image/kedaiEX1_20261122/models_root/enc27b_headless.gguf",
+    "D:/moss-image/kedaiEX1_20261122/models_root/llama-cuda/llama-server.exe",
+    "D:/moss-image/kedaiEX1_20261122/models_root/KedaiEX1-Adapter.safetensors",
+    "D:/moss-image/kedaiEX1_20261122/models_root/first_token.npz",
+    99,
+    4096,
+    2048,
+    16,
+    8411,
+    true,
+    "dio",
+    "cuda"
+   ],
+   "title": "27B TE + e2e_24576 · pos+neg"
   },
-  "version": 0.4
+  {
+   "id": 3,
+   "type": "UNETLoader",
+   "pos": [
+    540,
+    120
+   ],
+   "size": [
+    360,
+    82
+   ],
+   "flags": {},
+   "order": 1,
+   "mode": 0,
+   "outputs": [
+    {
+     "name": "MODEL",
+     "type": "MODEL",
+     "links": [
+      3
+     ],
+     "slot_index": 0
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "UNETLoader"
+   },
+   "widgets_values": [
+    "MI-DIT-Prism-KedaiEX1_ki8_15peak8.safetensors",
+    "default"
+   ]
+  },
+  {
+   "id": 5,
+   "type": "KI8DecodeCache",
+   "pos": [
+    540,
+    250
+   ],
+   "size": [
+    340,
+    82
+   ],
+   "flags": {},
+   "order": 2,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "model",
+     "type": "MODEL",
+     "link": 3
+    }
+   ],
+   "outputs": [
+    {
+     "name": "model",
+     "type": "MODEL",
+     "links": [
+      4
+     ],
+     "slot_index": 0
+    },
+    {
+     "name": "status",
+     "type": "STRING",
+     "links": [],
+     "slot_index": 1
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "KI8DecodeCache"
+   },
+   "widgets_values": [
+    0.0
+   ]
+  },
+  {
+   "id": 6,
+   "type": "EmptyFlux2LatentImage",
+   "pos": [
+    540,
+    380
+   ],
+   "size": [
+    340,
+    106
+   ],
+   "flags": {},
+   "order": 3,
+   "mode": 0,
+   "outputs": [
+    {
+     "name": "LATENT",
+     "type": "LATENT",
+     "links": [
+      5
+     ],
+     "slot_index": 0
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "EmptyFlux2LatentImage"
+   },
+   "widgets_values": [
+    1024,
+    1024,
+    1
+   ]
+  },
+  {
+   "id": 7,
+   "type": "KSampler",
+   "pos": [
+    940,
+    120
+   ],
+   "size": [
+    320,
+    262
+   ],
+   "flags": {},
+   "order": 4,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "model",
+     "type": "MODEL",
+     "link": 4
+    },
+    {
+     "name": "positive",
+     "type": "CONDITIONING",
+     "link": 1
+    },
+    {
+     "name": "negative",
+     "type": "CONDITIONING",
+     "link": 2
+    },
+    {
+     "name": "latent_image",
+     "type": "LATENT",
+     "link": 5
+    }
+   ],
+   "outputs": [
+    {
+     "name": "LATENT",
+     "type": "LATENT",
+     "links": [
+      6
+     ],
+     "slot_index": 0
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "KSampler"
+   },
+   "widgets_values": [
+    20261121,
+    "fixed",
+    12,
+    2.5,
+    "er_sde",
+    "simple",
+    1
+   ]
+  },
+  {
+   "id": 8,
+   "type": "VAELoader",
+   "pos": [
+    940,
+    430
+   ],
+   "size": [
+    320,
+    60
+   ],
+   "flags": {},
+   "order": 5,
+   "mode": 0,
+   "outputs": [
+    {
+     "name": "VAE",
+     "type": "VAE",
+     "links": [
+      7
+     ],
+     "slot_index": 0
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "VAELoader"
+   },
+   "widgets_values": [
+    "flux2-vae_small.safetensors"
+   ]
+  },
+  {
+   "id": 9,
+   "type": "VAEDecode",
+   "pos": [
+    1300,
+    120
+   ],
+   "size": [
+    220,
+    46
+   ],
+   "flags": {},
+   "order": 6,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "samples",
+     "type": "LATENT",
+     "link": 6
+    },
+    {
+     "name": "vae",
+     "type": "VAE",
+     "link": 7
+    }
+   ],
+   "outputs": [
+    {
+     "name": "IMAGE",
+     "type": "IMAGE",
+     "links": [
+      8
+     ],
+     "slot_index": 0
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "VAEDecode"
+   }
+  },
+  {
+   "id": 10,
+   "type": "SaveImage",
+   "pos": [
+    1300,
+    220
+   ],
+   "size": [
+    340,
+    320
+   ],
+   "flags": {},
+   "order": 7,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "images",
+     "type": "IMAGE",
+     "link": 8
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "SaveImage"
+   },
+   "widgets_values": [
+    "moss27b/e2e24576-ki814"
+   ]
+  },
+  {
+   "id": 11,
+   "type": "PreviewAny",
+   "pos": [
+    540,
+    540
+   ],
+   "size": [
+    340,
+    200
+   ],
+   "flags": {},
+   "order": 8,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "source",
+     "type": "*",
+     "link": 9
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "PreviewAny"
+   },
+   "widgets_values": []
+  },
+  {
+   "id": 12,
+   "type": "Note",
+   "pos": [
+    60,
+    580
+   ],
+   "size": [
+    440,
+    340
+   ],
+   "flags": {},
+   "order": 9,
+   "mode": 0,
+   "properties": {},
+   "widgets_values": [
+    "MOSS-Image · 27B TE (e2e_24576) + KI8 1.5.0-rc3\n\n链路 text→cond：\ntext → llama-server (--pooling none --embeddings) → [S,5120] → adapter_e2e_24576 (5120→2048×2→4096) → CONDITIONING\n\n链路 cond→图：\nUNETLoader → KI8DecodeCache → KSampler(er_sde/simple) → VAEDecode → SaveImage\n\n实测（RTX 4090 Laptop 16GB, 1024², 12 步, cfg 2.5）：\n· pos+neg 单次 boot 编码 11.4s（拆两节点 17.4s）\n· 端到端 44.5–45.2s（拆两节点 59.4–61.2s）\n· 27B 编码完必须释放，否则 11GiB 与 DiT 抢显存\n\n开关说明：\n· KI8DecodeCache=0 → 16GB 卡必须关；开 4.9GiB 会额外占 9.47GiB\n· KI8DecodeLUT / KI8TritonDecode 是全局开关，改了影响下一次采样；实测 1024²/12 步三臂差 <0.3s（瓶颈在注意力与 VAE，不在权重解码）"
+   ]
+  }
+ ],
+ "links": [
+  [
+   1,
+   1,
+   0,
+   7,
+   1,
+   "CONDITIONING"
+  ],
+  [
+   2,
+   1,
+   1,
+   7,
+   2,
+   "CONDITIONING"
+  ],
+  [
+   3,
+   3,
+   0,
+   5,
+   0,
+   "MODEL"
+  ],
+  [
+   4,
+   5,
+   0,
+   7,
+   0,
+   "MODEL"
+  ],
+  [
+   5,
+   6,
+   0,
+   7,
+   3,
+   "LATENT"
+  ],
+  [
+   6,
+   7,
+   0,
+   9,
+   0,
+   "LATENT"
+  ],
+  [
+   7,
+   8,
+   0,
+   9,
+   1,
+   "VAE"
+  ],
+  [
+   8,
+   9,
+   0,
+   10,
+   0,
+   "IMAGE"
+  ],
+  [
+   9,
+   1,
+   2,
+   11,
+   0,
+   "STRING"
+  ]
+ ],
+ "groups": [
+  {
+   "title": "27B 文本编码 · Qwen3.8-27B + e2e_24576",
+   "bounding": [
+    40,
+    60,
+    480,
+    880
+   ],
+   "color": "#3f789e"
+  },
+  {
+   "title": "KI8 1.5.0-rc3 DiT",
+   "bounding": [
+    520,
+    60,
+    380,
+    450
+   ],
+   "color": "#8A8"
+  },
+  {
+   "title": "采样 / 解码 / 保存",
+   "bounding": [
+    920,
+    60,
+    760,
+    620
+   ],
+   "color": "#b06634"
+  }
+ ],
+ "config": {},
+ "extra": {
+  "ds": {
+   "scale": 0.7,
+   "offset": [
+    20,
+    30
+   ]
+  }
+ },
+ "version": 0.4
 }
