@@ -12,13 +12,15 @@ KI8 1.5.0-rc3 weight.
 
 ## Colab / Linux download
 
+私有仓库需要 `GITHUB_TOKEN`（repo 权限）；或 `gh auth login` 后用 `gh release download`。
+
 ```bash
 BASE=https://github.com/Sata1949/MI-Prism-KedaiEX/releases/download/kex-weights-v1.5rc3
 mkdir -p /content/kex && cd /content/kex
 
 for i in $(seq 0 39); do
   n=$(printf "%03d" "$i")
-  curl -L --fail --retry 5 -O "$BASE/MI-DIT-Prism-KedaiEX1_ki8_15peak8.safetensors.part$n"
+  curl -L --fail --retry 5 -H "Authorization: token $GITHUB_TOKEN" -O "$BASE/MI-DIT-Prism-KedaiEX1_ki8_15peak8.safetensors.part$n"
 done
 
 cat MI-DIT-Prism-KedaiEX1_ki8_15peak8.safetensors.part* > MI-DIT-Prism-KedaiEX1_ki8_15peak8.safetensors

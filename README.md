@@ -134,11 +134,13 @@ KEX 是在 MOSS-Image SFT 上继续训练出来的成像模型：只替换尾部
 
 按 128 MiB 分片放在 GitHub Release `kex-weights-v1.5rc3`（40 片，单片 < 2 GiB）：
 
+私有仓库需要 `GITHUB_TOKEN`（repo 权限）；或 `gh auth login` 后用 `gh release download`。
+
 ```bash
 BASE=https://github.com/Sata1949/MI-Prism-KedaiEX/releases/download/kex-weights-v1.5rc3
 for i in $(seq 0 39); do
   n=$(printf "%03d" "$i")
-  curl -L --fail --retry 5 -O "$BASE/MI-DIT-Prism-KedaiEX1_ki8_15peak8.safetensors.part$n"
+  curl -L --fail --retry 5 -H "Authorization: token $GITHUB_TOKEN" -O "$BASE/MI-DIT-Prism-KedaiEX1_ki8_15peak8.safetensors.part$n"
 done
 cat MI-DIT-Prism-KedaiEX1_ki8_15peak8.safetensors.part* > MI-DIT-Prism-KedaiEX1_ki8_15peak8.safetensors
 sha256sum MI-DIT-Prism-KedaiEX1_ki8_15peak8.safetensors
