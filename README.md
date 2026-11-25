@@ -51,6 +51,8 @@ KEX（KedaiEX1）是在 [MOSS-Image-SFT](https://huggingface.co/OpenMOSS-Team/MO
 | 8 步总时 | 575.28 s | 25.15 s |
 | 峰值显存 | — | 5071 MiB |
 
+ComfyUI 全链路（1024×1024、12 步、cfg 2.5、27B TE）在 3070 Ti Laptop 8 GB 上是 **62.2 s/张**，权重解码走原生 CUDA W32 内核，输出与纯 torch 解码逐像素相同。
+
 同码率（8.25 bit/w）、同权重、同噪声，Peak8 与 INT8 的对比：
 
 | 臂 | 激活 | 步时 | RGB PSNR | LPIPS-Alex ↓ | 峰值显存 |
@@ -126,7 +128,7 @@ sha256sum MI-DIT-Prism-KedaiEX1_ki8_15peak8.safetensors
 python install_moss.py --comfy <COMFYUI_DIR> --yes
 ```
 
-跑完会打印图片路径。工作流本身已经实测：RTX 3070 Ti Laptop 8 GB，1024×1024、12 步、cfg 2.5，从排队到出图 **200.8–205.8 s**（两次实测），输出 `output/moss27b/e2e24576-ki815_00001_.png`。
+跑完会打印图片路径。工作流本身已经实测：RTX 3070 Ti Laptop 8 GB，1024×1024、12 步、cfg 2.5，从排队到出图 **62.2 s**（原生 W32 解码），输出 `output/moss27b/e2e24576-ki815_00001_.png`。
 
 ### ComfyUI 手动
 
@@ -142,7 +144,7 @@ UNETLoader(ki8_15peak8) → KSampler(er_sde / simple) → VAEDecode → SaveImag
 
 Peak8 由 ComfyUI codec 按 W8A16 装载，权重走 `ki8_decode_w32`，激活保持 BF16。
 
-ComfyUI 目前的 Peak8 解码是纯 torch 实现，没有 LUT 和 decode cache，约 13.4 s/步。上面那个 200.8 s 就是这么跑出来的。KI8 runtime 的原生 CUDA 路径是 2.999 s/步，两者权重与输出一致。
+ComfyUI 通过 `comfy/ki8_peak_cuda.py` 加载 `peak_optimized.ptx`，Peak8 权重解码走 `ki8_decode_w32`：一个 warp 处理一个 32 权重组，整数归约找峰值和奇偶校验，整层一次内核发射。1024×1024、12 步的整图从纯 torch 的 205.8 s 降到 **62.2 s**，输出逐像素相同。实现、回退条件和复测命令见 [docs/cuda-decode.md](docs/cuda-decode.md)。
 
 ### 命令行校验
 
@@ -206,6 +208,7 @@ BF16 臂在 CPU 上跑，10.16 GB 放不进 8 GB 显存，8 步约 575 s。
 | 8 步采样峰值 | 5071 MiB |
 | 8 步总时 | 25.15 s |
 | 步时中位 | 2.999 s |
+| ComfyUI 1024² / 12 步整图 | 62.2 s |
 | BF16 基线步时（CPU） | 71.91 s |
 | Peak8 单投影 4096×4096 / 512 tokens | 21.20 ms |
 | e2m5 同形状 | 88.85 ms |
@@ -238,7 +241,7 @@ KEX 1.5 的两个码流差 0.0375 LPIPS-Alex，原生 SFT 和 KEX 差 0.24。构
 
 ## 已知限制
 
-- ComfyUI 的 Peak8 还没有原生 LUT，13.4 s/步；2.999 s/步属于 KI8 runtime 的 CUDA 路径。
+- 原生 W32 解码只覆盖 W8A16 的 32 宽权重。A8 / group-128 的激活量化仍走 torch。
 - PSNR 和 LPIPS 来自单种子、单图，只作相对参考。
 - 8 GB 卡上 TE 和 DiT 不能共存，必须两阶段。
 - BF16 基线不随 Release 分发。复现 43.34 dB 需要自备 `moss_image_clip7_bf16.safetensors`。
@@ -255,6 +258,7 @@ MI-Prism-KedaiEX/
 ├── NOTICE
 ├── docs/
 │   ├── weights.md
+│   ├── cuda-decode.md
 │   └── assets/
 │       ├── kedai-logo.svg
 │       └── kex-1024.png
