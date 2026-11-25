@@ -1,227 +1,168 @@
+<div align="center">
+
 # MI-Prism-KedaiEX
 
-**8 GB 笔记本上的 KEX 出图栈：KI8 1.5.0-rc3，W8A16，8.25 bit/权重。对 KEX BF16 参考 43.34 dB PSNR / LPIPS-Alex 0.00756。**
+**KEX 5B 文生图 · 8 GB 笔记本 · KI8 1.5.0-rc3 W8A16**
 
-- 发行版：**KI8 1.5.0-rc3**（Peak8 / W32，W8A16）
-- 基线：**KEX BF16（clip7）**
-- 参考机：RTX 3070 Ti Laptop 8 GB / Ryzen 7 6800H / 16 GB DDR5
-- 许可：MIT / Apache-2.0 / GPL-3.0 分层，见 [LICENSING-LAYERS.md](LICENSING-LAYERS.md)
+[Release](https://github.com/Sata1949/MI-Prism-KedaiEX/releases/tag/kex-weights-v1.5rc3) ·
+[Weights](docs/weights.md) ·
+[License](LICENSING-LAYERS.md) ·
+[ComfyUI workflow](examples/moss27b_e2e24576_ki815.json)
 
----
-
-## 结论
-
-同一张 256×256、同噪声、同条件、8 步、seed 20261123：
-
-| 指标 | KEX BF16（clip7） | KI8 1.5.0-rc3 W8A16 |
-|---|---:|---:|
-| RGB PSNR | 基准 | **43.34 dB** |
-| LPIPS-Alex ↓ | 0 | **0.00756** |
-| LPIPS-Squeeze ↓ | 0 | **0.00663** |
-| latent PSNR | 基准 | 21.56 dB |
-| latent 相关 | 1.0 | **0.9964** |
-| 最大像素差 | 0 | 18 / 255 |
-| 显存峰值 | —（CPU 采样） | **5071 MiB** |
-| 步时 | 71.91 s（CPU） | **2.999 s** |
-| 8 步总时 | 575.28 s | **25.15 s** |
-
-**43.34 dB / LPIPS 0.00756 是逐像素基本分不出来的水平。** KEX 的构图、肤色、逆光轮廓和末层质感，在 8.25 bit/权重下保住了。
-
-同码率（8 位值 + 2 位/权重的 E5F3 尺度 = 8.25 bit/w）、同权重、同噪声，KI8 1.5 的 Peak8 对 INT8：
-
-| 臂 | 激活 | 步时 | RGB PSNR | LPIPS-Alex ↓ | 显存 |
-|---|---:|---:|---:|---:|---:|
-| **KI8 1.5 Peak8（W8A16）** | BF16 | **2.999 s** | **43.34 dB** | **0.00756** | 5071 MiB |
-| INT8 W8A16 | BF16 | 8.74 s | 38.72 dB | 0.01878 | 5073 MiB |
-| INT8 W8A8 | INT8 | 10.99 s | 35.51 dB | 0.01663 | 5102 MiB |
-
-同码率下 Peak8 比 INT8 W8A16 **高 4.62 dB、LPIPS 低 2.5 倍、快 2.9 倍**。INT8 没有专用内核，走逐 output tile 反量化再 BF16 GEMM；Peak8 走专用 PTX 内核。
-
----
-
-## 画质：KEX 的构图与审美
-
-KEX 是在 MOSS-Image SFT 上继续训练出来的成像模型：只替换尾部三个张量（`layers.41.proj.o`、`layers.41.proj.ffn_down`、`final_linear_video`，共 34,996,224 参数），并把每层 q/k/v 融成 `qkv`。改动集中在**最后合成层**，改变的是：
-
-- **人物重心**：髋部偏移、头部倾斜、肩线角度，站姿不是直上直下；
-- **光线取向**：暖调逆光、轮廓光贴着发丝和肩背走，海面高光更集中；
-- **材质与肤色**：皮肤高光偏暖，布料和湿发的反射更厚，暗部不死黑；
-- **画面重心**：主体通常压在黄金分割附近，太阳/海岸线让位给人物，而不是平均铺开。
+</div>
 
 ![KEX 1.5 Peak8，1024×1024，12 步，cfg 2.5](docs/assets/kex-1024.png)
 
-*KEX 1.5 Peak8，1024×1024，12 步，cfg 2.5，seed 20261121。*
-
-1024×1024、12 步、cfg 2.5、seed 20261121 的四臂同 prompt 对照里，这个取向是可测的：三个 KEX 臂彼此 LPIPS-Alex 只有 **0.027–0.041**，而同 prompt 的原生 INT8 SFT 与 KEX 臂差 **0.23**、PSNR 只有约 24.5 dB。**构图签名来自 KEX 权重，不是量化噪声。**
-
-27B 文本编码器把条件约束再抬一档。等计算量对照（同样前向次数）：
-
-| 配置 | 笔触量 `stroke_band` |
-|---|---:|
-| 9B，cfg 1.0，8 步 | 3.889 |
-| 27B，cfg 2.0，4 步 | 3.820 |
-| 9B，cfg 1.0，4 步 | 2.766 |
-
-27B 跑 4 步、cfg 2.0，笔触量是 9B 跑 8 步、cfg 1.0 的 **98%**，前向次数相同。条件更强，构图更听话，细节不必靠加步数硬堆。
-
-**KEX 的构图和审美是这条线的上限；KI8 1.5 的工作是别把它抹掉。** 43.34 dB / LPIPS 0.00756 就是这句话的证据。
+KEX（KedaiEX1）是在 [MOSS-Image-SFT](https://huggingface.co/OpenMOSS-Team/MOSS-Image-SFT) 上继续训练的 5B 文生图模型。MI-Prism-KedaiEX 把它压进 8 GB 显存：KI8 1.5.0-rc3 用 **Peak8 / W32** 把 269 个线性层编到 **8.25 bit/权重**，激活保持 BF16（W8A16）。对 KEX BF16 参考，256×256 / 8 步的端到端结果是 **43.34 dB PSNR / LPIPS-Alex 0.00756**，8 步采样峰值 **5071 MiB**。
 
 ---
 
-## KI8 1.5.0-rc3
+## 目录
 
-### Peak8：整组编码，8.25 bit/w
+- [亮点](#亮点)
+- [模型](#模型)
+- [权重](#权重)
+- [保真度](#保真度)
+- [快速开始](#快速开始)
+  - [ComfyUI](#comfyui)
+  - [命令行校验与测速](#命令行校验与测速)
+  - [保真度复现](#保真度复现)
+- [采样设置](#采样设置)
+- [显存与速度](#显存与速度)
+- [构图与审美](#构图与审美)
+- [局限](#局限)
+- [仓库结构](#仓库结构)
+- [许可证](#许可证)
+- [致谢与引用](#致谢与引用)
 
-普通 int8 按固定间隔切格子，少数大值把量程撑开后，大量小值挤进少数格子。Peak8 以 32 个权重为一组：
+---
 
-- 组内先存一个 5+3 bit 组头和一个 112..127 的峰值标记；
-- 其余幅值 0..111，用三 bit syndrome 选半径，最多改一个相邻码；
-- 解码端从组头和 syndrome 还原峰值与半径，不需要额外位置表。
+## 亮点
 
-结果还是 **8 bit 值 + 0.25 bit/权重的尺度 = 8.25 bit/w**，但每组都能跟住自己的峰值。clip7 上 14 个张量的权重 SQNR：
+- **KEX 的画质被保住了。** 对 KEX BF16（clip7）参考，KI8 1.5.0-rc3 W8A16 在 256×256 / 8 步 / 同噪声同条件下是 **43.34 dB PSNR、LPIPS-Alex 0.00756、latent 相关 0.9964**，最大像素差 18/255。构图、肤色、逆光轮廓和末层质感没有在量化里丢掉。
+- **同码率压过 INT8。** 8.25 bit/w 下，Peak8 比 INT8 W8A16 **高 4.62 dB**、LPIPS-Alex 低 **2.5 倍**、步时快 **2.9 倍**（2.999 s vs 8.74 s）。
+- **8 GB 卡能跑。** 42 层 DiT、269 个线性层重编码后权重 5.24 GB，8 步采样峰值 **5071 MiB**；27B 文本编码器单独进程加载，编码完即释放。
+- **W8A16 是硬口径。** `peak8-a16` 检查会现场打包 `1.5.0-rc3` checkpoint 并回环，`auto` 与 `reference` 逐位相同；失败不会静默回退 PyTorch。
+- **构图是 KEX 的资产。** 1024×1024 四臂同 prompt 对照里，三个 KEX 臂彼此 LPIPS-Alex 只有 0.027–0.041，和原生 SFT 差 0.23。量化必须保住的是这个签名。
 
-| 编解码 | bits/w | 权重 SQNR |
-|---|---:|---:|
-| e2m5 | 8.25 | 44.59 dB |
-| **Peak8** | 8.25 | **45.23 dB** |
-| KI6 v3 26B 组 | 6.5 | 35.38 dB |
+---
 
-真实激活、真实投影输出（clip7 权重 + KEX 前向激活）：
+## 模型
 
-| 臂 | 输出 SQNR |
-|---|---:|
-| e2m5 权重 + BF16 激活 | 47.67 dB |
-| **Peak8 权重 + BF16 激活（W8A16）** | **48.34 dB** |
-| e2m5 权重 + e2m5 激活（W8A8） | 43.18 dB |
-| Peak8 权重 + Peak8 激活（W8A8） | 44.70 dB |
+| 字段 | 值 |
+|---|---|
+| 名称 | MI-Prism-KedaiEX（KedaiEX1 / KEX） |
+| 开发者 | sata1921、seeds、suihan、hilo114 |
+| 基座 | [MOSS-Image-SFT](https://huggingface.co/OpenMOSS-Team/MOSS-Image-SFT)（Apache-2.0） |
+| 架构 | 42 层 DiT，5B 主干；Qwen3.8-27B headless 文本编码器（5120→4096 adapter）；FLUX.2 small VAE |
+| 文本条件 | 自然语言 prompt、tag 序列、JSON layout（MOSS-Image 原生格式） |
+| 参考精度 | BF16（clip7，尾部三张量微调，qkv 融合） |
+| 发行精度 | **KI8 1.5.0-rc3 Peak8 / W32，W8A16，8.25 bit/w** |
+| 权重文件 | `MI-DIT-Prism-KedaiEX1_ki8_15peak8.safetensors`，5,241,596,371 B |
+| 权重许可 | Apache-2.0（MOSS-Image 衍生，见 `NOTICE`） |
+| 代码许可 | MIT（KI8 运行时、转换器、安装器、本仓库工具） |
+| 发行 | 2026-11，KI8 1.5.0-rc3 |
 
-### W8A16：激活不量化
-
-发行口径是 **Peak8 权重 + BF16 激活**。激活不量化，少一层 A8 舍入漂移；权重走 W32 整组解码，配专用 CUDA 内核。
-
-- `peak8-a16` 是 rc3 的正式 profile，checkpoint 的 `manifest.version` 是 `1.5.0-rc3`；
-- 装载时验证每层真的是 `("peak8", "bf16")`，不是“名字叫 A16、实际走 A8”；
-- 端到端 8 步累计误差 43.34 dB / LPIPS 0.00756，说明 W8A16 路径没有把权重优势吃掉。
-
-### CUDA 原生 W32 解码
-
-`peak_optimized.ptx` 里的 `ki8_decode_w32` 用 warp 整数指令找峰值、算奇偶校验，替代两段 shuffle 归约；列宽是 32 的倍数时每 lane 正好一个值。`ki8_select` 把候选舍入和半径选择压进一次内核发射。
-
-本机实测（4096×4096，512 tokens，rank-16 LoRA，5 次中位数）：
-
-| 路径 | 中位 |
-|---|---:|
-| e2m5 `fast` | 88.85 ms |
-| Peak8 `reference`（PyTorch） | 191.84 ms |
-| **Peak8 `auto`（原生 W32）** | **21.20 ms** |
-| Peak8 `release`（对照） | 20.63 ms |
-
-相对 e2m5 是 **4.19×**；原生 W32 与 release 在该形状下持平（21.20 vs 20.63 ms，差值在噪声内），但 `auto` 路径的输出与 reference **逐位相同**，不是近似。
-
-### 结构与显存
-
-- q/k/v 融合成 `qkv`，42 层每层少两次矩阵乘调用，权重读取从三次连续读变成一次；
-- 全模型 269 个线性层重编码，非量化张量逐位复制；8 步采样峰值 **5071 MiB**；
-- 27B 编码器由 llama.cpp 单独进程加载，编码完即关，不和 DiT 同时占 8 GB 卡。
+KEX 相对 MOSS-Image-SFT 的改动只在尾部：替换 `layers.41.proj.o`、`layers.41.proj.ffn_down`、`final_linear_video` 三个张量（共 34,996,224 参数），并把每层 q/k/v 融成 `qkv`。其余张量与 SFT 同源；SFT 与 clip7 的逐张量 SQNR 只有 15.65–23.08 dB，说明微调幅度全部集中在这三个输出层。
 
 ---
 
 ## 权重
 
-| 文件 | 内容 | 大小 | SHA256 |
+| 文件 | 格式 | 大小 | SHA256 |
 |---|---|---:|---|
-| `MI-DIT-Prism-KedaiEX1_ki8_15peak8.safetensors` | KI8 1.5.0-rc3 Peak8/W32（W8A16） | 5,241,596,371 B | `7064ed51…e572` |
+| `MI-DIT-Prism-KedaiEX1_ki8_15peak8.safetensors` | KI8 1.5.0-rc3 Peak8/W32，W8A16 | 5,241,596,371 B | `7064ed51…e572` |
 
-按 128 MiB 分片放在 GitHub Release `kex-weights-v1.5rc3`（40 片，单片 < 2 GiB）：
-
-私有仓库需要 `GITHUB_TOKEN`（repo 权限）；或 `gh auth login` 后用 `gh release download`。
+权重按 128 MiB 分片放在 GitHub Release `kex-weights-v1.5rc3`（40 片，单片 < 2 GiB）。仓库是私有的，下载需要 `GITHUB_TOKEN`（repo 权限）：
 
 ```bash
 BASE=https://github.com/Sata1949/MI-Prism-KedaiEX/releases/download/kex-weights-v1.5rc3
 for i in $(seq 0 39); do
   n=$(printf "%03d" "$i")
-  curl -L --fail --retry 5 -H "Authorization: token $GITHUB_TOKEN" -O "$BASE/MI-DIT-Prism-KedaiEX1_ki8_15peak8.safetensors.part$n"
+  curl -L --fail -H "Authorization: token $GITHUB_TOKEN" \
+    -O "$BASE/MI-DIT-Prism-KedaiEX1_ki8_15peak8.safetensors.part$n"
 done
 cat MI-DIT-Prism-KedaiEX1_ki8_15peak8.safetensors.part* > MI-DIT-Prism-KedaiEX1_ki8_15peak8.safetensors
 sha256sum MI-DIT-Prism-KedaiEX1_ki8_15peak8.safetensors
 ```
 
-完整分片哈希与加载说明见 [docs/weights.md](docs/weights.md)。KEX BF16 基线不随本 Release 分发。
+逐片哈希、加载说明和 `gh release download` 写法见 [docs/weights.md](docs/weights.md)。KEX BF16 基线（10.16 GB）不随本 Release 分发。
 
 ---
 
-## 安装
+## 保真度
 
-```bash
-P="python"                     # 先激活含 torch 2.9.1+cu128 的 venv
-KI8="D:/moss-image/KI8-1.5.0-rc3"
-REPO="$(pwd)"                  # 本仓库根目录
-INSTALLER="<发行包>/install_moss.py"
+**端到端：256×256 latent、8 步、seed 20261123、同噪声、同 27B 条件缓存。** BF16 参考是 clip7 全张量；量化臂的非量化张量也全部取自 clip7，所以差异只来自权重编解码。
 
-# 1. 应用 CUDA 内核
-git -C "$KI8" apply "$REPO/patches/ki8-1.5.0-rc3-cuda.patch"
+| 臂 | 精度 | 步时 | RGB PSNR | LPIPS-Alex ↓ | LPIPS-Squeeze ↓ | latent 相关 | 峰值显存 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| **KI8 1.5 Peak8** | **W8A16** | **2.999 s** | **43.34 dB** | **0.00756** | **0.00663** | **0.9964** | **5071 MiB** |
+| INT8 | W8A16 | 8.74 s | 38.72 dB | 0.01878 | 0.01484 | 0.9898 | 5073 MiB |
+| INT8 | W8A8 | 10.99 s | 35.51 dB | 0.01663 | 0.01448 | 0.9941 | 5102 MiB |
+| KEX BF16（clip7） | BF16 | 71.91 s | 基准 | — | — | — | —（CPU） |
 
-# 2. 安装并校验 W8A16
-"$P" "$INSTALLER" --comfy <COMFYUI> --yes --no-launch --ki8-root "$KI8"
-```
+**权重 / 投影 SQNR（clip7 权重 + KEX 真实激活）：**
 
-安装器会定位 `KI8-1.5.0-rc3` 树、应用补丁、备份被改文件，然后跑一次真实 `1.5.0-rc3` checkpoint 回环：
+| 编解码 | bits/w | 权重 SQNR | W8A16 投影输出 SQNR |
+|---|---:|---:|---:|
+| e2m5 | 8.25 | 44.59 dB | 47.67 dB |
+| **Peak8** | 8.25 | **45.23 dB** | **48.34 dB** |
+| KI6 v3 26B 组 | 6.5 | 35.38 dB | 39.97 dB |
 
-- `347×511`（带尾组，token_tile 31 / output_tile 43）
-- `3072×9216`（真实投影形状）
-
-两个用例都要求 `auto` 与 `reference` **逐位相同**，并检查 `a16_decode == native-w32`；失败会还原所有改动，包括新增文件。
-
-本机校验输出：
-
-```json
-"wire_check": {
-  "backend": "peak_cuda.ptx",
-  "w32_decode": "native-w32",
-  "radius_selection": "fused",
-  "wire_elements": 216224,
-  "identical": true
-},
-"a16_checkpoint": {
-  "version": "1.5.0-rc3",
-  "cases": [
-    {"shape": [347, 511],   "weight_format": "peak8", "activation_format": "bf16", "bit_identical": true},
-    {"shape": [3072, 9216], "weight_format": "peak8", "activation_format": "bf16", "bit_identical": true}
-  ],
-  "bit_identical": true,
-  "backend": {"a16_decode": "native-w32"}
-}
-```
+单投影 SQNR 不能替代出图保真度：e2m5 的投影有 47.67 dB，端到端只有 34.28 dB（8 步累积）；Peak8 端到端 43.34 dB。上面的出图数据才是发行口径。
 
 ---
 
-## 使用
+## 快速开始
+
+### ComfyUI
+
+1. 安装发行包里的 KI8 1.5.0-rc3 运行时与 ComfyUI 编解码/节点；KI8 运行时补丁见 [patches/ki8-1.5.0-rc3-cuda.patch](patches/ki8-1.5.0-rc3-cuda.patch)。
+2. 把 `MI-DIT-Prism-KedaiEX1_ki8_15peak8.safetensors` 放进 `ComfyUI/models/diffusion_models/`。
+3. 导入 [examples/moss27b_e2e24576_ki815.json](examples/moss27b_e2e24576_ki815.json)，按本机路径修改 27B GGUF、`KedaiEX1-Adapter` 和 `first_token.npz`。
+4. 节点链路：
+
+```
+MossTE27BEncodePair → CONDITIONING
+UNETLoader(ki8_15peak8) → KSampler(er_sde / simple) → VAEDecode → SaveImage
+```
+
+Peak8 由 KI8 codec 按 W8A16 装载：权重走 `ki8_decode_w32`，激活保持 BF16，`quantize_input=False`。
+
+> ComfyUI 里的 Peak8 目前是纯 torch 模拟解码（无 LUT、无 decode cache），约 13.4 s/步；原生 CUDA 路径的 2.999 s/步见下面的命令行与显存表。要上线到原生速度，需要给 ComfyUI 接 Peak8 LUT 或打开 decode cache。
+
+### 命令行校验与测速
 
 ```bash
 P="python"                     # 先激活含 torch 2.9.1+cu128 的 venv
 KI8="D:/moss-image/KI8-1.5.0-rc3"
 
-# W8A16 硬验证
+# W8A16 硬验证：真实 1.5.0-rc3 checkpoint 回环 + 原生 W32
 KI8_REQUIRE_A16=1 "$P" "$KI8/run.py" check --device cuda:0 --require-a16
 
-# 单投影速度
+# 单投影 W8A16 速度
 "$P" "$KI8/run.py" bench-speed --device cuda:0 --profile peak8-a16 \
   --in-features 4096 --out-features 4096 --tokens 512 \
   --token-tile 128 --output-tile 128 --iterations 5 --out work/speed_a16.json
+```
 
-# 端到端：先跑 KEX BF16 基线（CPU，约 575 s），再跑 W8A16
-C="D:/moss-image/clip7/moss_image_clip7_bf16.safetensors"
+`check --require-a16` 会打包 `347×511`（带尾组）和 `3072×9216`（真实投影）两个 `1.5.0-rc3` checkpoint，装回去后要求 `auto` 与 `reference` **逐位相同**，并检查 `a16_decode == native-w32`。
+
+### 保真度复现
+
+```bash
+C="<PATH>/moss_image_clip7_bf16.safetensors"     # KEX BF16 基线，需自备
 OUT=work; mkdir -p $OUT
 
-"$P" -I bench/kex_bf16_arms.py --arm bf16 --clip7 "$C" --ki8 "$KI8" \
-  --transformer D:/moss-image/moss-bf16/transformer \
-  --cond D:/moss-image/ComfyUI/models/cond_cache/kedaiEX1-pos.pt \
-  --out $OUT/kex_bf16/bf16 --steps 8
-
+# 候选：KI8 1.5 W8A16
 KI8_REQUIRE_A16=1 "$P" -I bench/kex_bf16_arms.py --arm v15 --clip7 "$C" --ki8 "$KI8" \
-  --transformer D:/moss-image/moss-bf16/transformer \
-  --cond D:/moss-image/ComfyUI/models/cond_cache/kedaiEX1-pos.pt \
+  --transformer <MOSS_TRANSFORMER_DIR> --cond <COND_CACHE.pt> \
   --out $OUT/kex_w8a16/v15 --steps 8 --device cuda:0
+
+# 基线：BF16（CPU，约 575 s / 8 步）
+"$P" -I bench/kex_bf16_arms.py --arm bf16 --clip7 "$C" --ki8 "$KI8" \
+  --transformer <MOSS_TRANSFORMER_DIR> --cond <COND_CACHE.pt> \
+  --out $OUT/kex_bf16/bf16 --steps 8
 
 # PSNR / LPIPS
 "$P" -I bench/score_psnr_lpips.py \
@@ -230,17 +171,66 @@ KI8_REQUIRE_A16=1 "$P" -I bench/kex_bf16_arms.py --arm v15 --clip7 "$C" --ki8 "$
   --out $OUT/kex_w8a16/score_v15_vs_bf16.json
 ```
 
-BF16 基线在 CPU 上跑（10.16 GB 放不进 8 GB 显存），8 步约 575 s；量化臂在 `cuda:0` 上跑。
+---
+
+## 采样设置
+
+| 场景 | 分辨率 | 步数 | CFG | Sampler | 说明 |
+|---|---|---|---:|---|---|
+| 保真度探针 | 256×256 | 8 | — | MOSS scheduler | 同噪声比编解码误差 |
+| 快速出图 | 1024×1024 | 12 | 2.5 | er_sde / simple | 发行工作流默认 |
+| 视觉对比 | 1024×1024 | 25 | 2.5 | er_sde / simple | 细节与笔触更完整 |
+| 文本/排版 | 1024×1024 | 50 | 3.0 | Flow-matching Euler | MOSS-Image 官方默认 |
+
+> 8 步是量化保真度探针，不是最终视觉质量；看画面用 25 步或 50 步。
 
 ---
 
-## 数据口径
+## 显存与速度
 
-- 端到端：256×256 latent、8 步、seed 20261123、同噪声、同 27B 条件缓存；BF16 为 clip7 全张量，量化臂的非量化张量也全部取自 clip7。
-- LPIPS 0.1.4，Alex / Squeeze 两个 backbone；PSNR 按 8-bit RGB 计算，最大差按 0..255 计。
-- 速度：同机、同一脚本、`cuda:0`；8 步取每步耗时中位数。跨机器不直接比。
-- 1024×1024 四臂：ComfyUI，12 步，cfg 2.5，er_sde，seed 20261121，同 prompt、同噪声。
-- 单种子、单图指标只作相对参考；质量结论以多臂一致性和逐像素差值为准。
+参考机：RTX 3070 Ti Laptop 8 GB / Ryzen 7 6800H / 16 GB DDR5，`cuda:0`。
+
+| 项目 | 数值 |
+|---|---:|
+| 权重常驻 | 5.24 GB |
+| 8 步采样峰值 | 5071 MiB |
+| 8 步总时 | 25.15 s |
+| 步时中位 | 2.999 s |
+| BF16 基线步时（CPU） | 71.91 s |
+| Peak8 单投影（4096×4096，512 tokens） | 21.20 ms |
+| e2m5 同形状 | 88.85 ms |
+
+8 GB 卡的硬约束：27B 文本编码器（约 10 GB）和 DiT 不能同时驻留。先编码 cond，释放 TE，再加载 DiT 采样；这是两阶段链路，不是可选优化。
+
+---
+
+## 构图与审美
+
+KEX 的微调集中在**最后合成层**，改变的是：
+
+- **人物重心**：髋部偏移、头部倾斜、肩线角度，站姿不是直上直下；
+- **光线取向**：暖调逆光、轮廓光贴着发丝和肩背走，海面高光更集中；
+- **材质与肤色**：皮肤高光偏暖，布料和湿发的反射更厚，暗部不死黑；
+- **画面重心**：主体压在黄金分割附近，太阳/海岸线让位给人物，而不是平均铺开。
+
+这个取向是可测的。1024×1024、12 步、cfg 2.5、seed 20261121 的四臂同 prompt 对照里：
+
+| 对 | RGB PSNR | LPIPS-Alex |
+|---|---:|---:|
+| KEX 1.5 Peak8 vs KEX 1.5 s8 | 31.00 dB | 0.0375 |
+| 原生 INT8 SFT vs KEX 1.5 Peak8 | 24.43 dB | 0.2379 |
+
+KEX 1.5 的两个码流（Peak8 / s8）彼此只差 0.0375 LPIPS-Alex；原生 SFT 和 KEX 差 0.24。**构图签名来自 KEX 权重，不是量化噪声。** 27B 编码器再把条件约束抬一档：等计算量下，27B 跑 4 步 cfg 2.0 的笔触量是 9B 跑 8 步 cfg 1.0 的 98%（3.820 vs 3.889），前向次数相同。
+
+---
+
+## 局限
+
+- **ComfyUI 的 Peak8 还没有原生 LUT。** 当前是纯 torch 模拟解码，约 13.4 s/步；2.999 s/步是 KI8 runtime 原生 CUDA 路径。两者权重与输出一致，速度不同。
+- **单种子、单图指标。** PSNR / LPIPS 只作相对参考；质量结论以多臂一致性和逐像素差值为准。
+- **8 GB 卡不能同时放 TE 和 DiT。** 必须两阶段；16 GB 内存也会限制同时驻留的权重数量。
+- **BF16 基线不随 Release 分发。** 复现 43.34 dB 需要自备 `moss_image_clip7_bf16.safetensors`（10.16 GB）；仓库只发行 KI8 1.5.0-rc3 量化权重。
+- **私仓下载需要 token。** Release 资产在私有仓库下不公开；Colab 里需要 `GITHUB_TOKEN` 或 `gh auth login`。
 
 ---
 
@@ -251,14 +241,18 @@ MI-Prism-KedaiEX/
 ├── README.md
 ├── LICENSING-LAYERS.md        四层许可边界
 ├── NOTICE                     上游署名与修改声明
+├── docs/
+│   ├── weights.md             分片下载、哈希、加载
+│   └── assets/kex-1024.png    1024² 样图
+├── examples/
+│   └── moss27b_e2e24576_ki815.json   ComfyUI 工作流
 ├── patches/
-│   └── ki8-1.5.0-rc3-cuda.patch   W32 解码 + W8A16 校验
+│   └── ki8-1.5.0-rc3-cuda.patch      W32 解码 + W8A16 校验
 ├── bench/
-│   ├── kex_bf16_arms.py       clip7 基线 / v15 W8A16 端到端采样
+│   ├── kex_bf16_arms.py       clip7 基线 / v15 W8A16 采样
 │   ├── score_psnr_lpips.py    PSNR / LPIPS-Alex / LPIPS-Squeeze
 │   └── st_read.py             原样 safetensors 读取器
 ├── configs/                   27B 预算模型配置
-├── docs/                      预算模型、硬件档位、评测协议、许可说明
 ├── phase1/                    组件清单与哈希
 ├── tools/                     预算模型、硬件探测、文档审计、许可审计
 └── tests/                     预算模型 / 文档 / 许可测试
@@ -266,7 +260,7 @@ MI-Prism-KedaiEX/
 
 ---
 
-## 许可
+## 许可证
 
 | 层 | 许可 | 覆盖 |
 |---|---|---|
@@ -278,5 +272,23 @@ MI-Prism-KedaiEX/
 完整义务与文件清单见 [LICENSING-LAYERS.md](LICENSING-LAYERS.md)、[docs/10-phase1-licensing.md](docs/10-phase1-licensing.md)。
 
 ---
+
+## 致谢与引用
+
+基座与架构来自 [MOSS-Image](https://github.com/OpenMOSS/MOSS-Image)（OpenMOSS）。文本编码器来自 Qwen3.8-27B；VAE 来自 FLUX.2 small decoder；推理与量化工具基于 Diffusers / PyTorch。
+
+如果这个项目对你有帮助，请优先引用 MOSS-Image 技术报告：
+
+```bibtex
+@misc{ai2026mossimagetechnicalreport,
+      title={MOSS-Image Technical Report},
+      author={MOSI. AI},
+      year={2026},
+      eprint={2610.23374},
+      archivePrefix={arXiv},
+      primaryClass={cs.CV},
+      url={https://arxiv.org/abs/2610.23374},
+}
+```
 
 **KEX 负责好看，KI8 1.5.0-rc3 负责在 8 GB 卡上把这份好看原样跑出来。**
