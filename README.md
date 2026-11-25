@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/assets/logo-kedai-team.png" alt="Kedai Team" width="520">
+
 # MI-Prism-KedaiEX
 
 **KEX 5B 文生图 · 8 GB 笔记本 · KI8 1.5.0-rc3 W8A16**
