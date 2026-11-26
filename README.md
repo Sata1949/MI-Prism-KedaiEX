@@ -4,9 +4,9 @@
 
 # MI-Prism-KedaiEX
 
-KEX 5B 文生图 · 8 GB 笔记本 · KI8 1.5.0-rc3 W8A16
+SFT 主干 · KI8 1.6.0-rc1 W8A16 · KEX 1.5 对照
 
-[Release](https://github.com/Sata1949/MI-Prism-KedaiEX/releases/tag/kex-weights-v1.5rc3) ·
+[SFT 1.6 Release](https://github.com/Sata1949/MI-Prism-KedaiEX/releases/tag/kex-weights-v1.6rc1) ·
 [Weights](docs/weights.md) ·
 [License](LICENSING-LAYERS.md) ·
 [ComfyUI workflow](examples/moss27b_e2e24576_ki815.json)
@@ -15,7 +15,7 @@ KEX 5B 文生图 · 8 GB 笔记本 · KI8 1.5.0-rc3 W8A16
 
 ![KEX 1.5 Peak8，1024×1024，12 步，cfg 2.5](docs/assets/kex-1024.png)
 
-KEX（KedaiEX1）是在 [MOSS-Image-SFT](https://huggingface.co/OpenMOSS-Team/MOSS-Image-SFT) 上继续训练的 5B 文生图模型。这个仓库把它装进 8 GB 显存：KI8 1.5.0-rc3 用 Peak8 / W32 编码 269 个线性层，权重 8.25 bit，激活保持 BF16。256×256、8 步、同噪声下，输出对 KEX BF16 参考是 43.34 dB PSNR、LPIPS-Alex 0.00756。
+KEX（KedaiEX1）是在 [MOSS-Image-SFT](https://huggingface.co/OpenMOSS-Team/MOSS-Image-SFT) 上继续训练的 5B 文生图模型。本次 1.6 发布的是原版 SFT 主干；下述 KEX 成绩来自上一版 1.5。在 8 GB 显存下，KI8 1.5.0-rc3 用 Peak8 / W32 编码 269 个线性层，权重 8.25 bit，激活保持 BF16。256×256、8 步、同噪声下，输出对 KEX BF16 参考是 43.34 dB PSNR、LPIPS-Alex 0.00756。
 
 ---
 
@@ -85,11 +85,11 @@ Peak8 比 INT8 W8A16 高 4.62 dB，LPIPS 低 2.5 倍，步时短 2.9 倍。INT8 
 | 架构 | 42 层 DiT，5B 主干；Qwen3.8-27B headless 文本编码器（5120→4096 adapter）；FLUX.2 small VAE |
 | 文本条件 | 自然语言 prompt、tag 序列、JSON layout |
 | 参考精度 | BF16（clip7），尾部三张量微调，qkv 融合 |
-| 发行精度 | KI8 1.5.0-rc3 Peak8 / W32，W8A16，8.25 bit/w |
-| 权重文件 | `MI-DIT-Prism-KedaiEX1_ki8_15peak8.safetensors`，5,241,596,371 B |
+| KEX 1.5 精度 | KI8 1.5.0-rc3 Peak8 / W32，W8A16，8.25 bit/w |
+| KEX 1.5 文件 | `MI-DIT-Prism-KedaiEX1_ki8_15peak8.safetensors`，5,241,596,371 B |
 | 权重许可 | Apache-2.0，MOSS-Image 衍生，见 `NOTICE` |
 | 代码许可 | MIT |
-| 发行 | 2026-11，KI8 1.5.0-rc3 |
+| KEX 对照发行 | 2026-11，KI8 1.5.0-rc3 |
 
 KEX 相对 MOSS-Image-SFT 只改尾部：替换 `layers.41.proj.o`、`layers.41.proj.ffn_down`、`final_linear_video` 三个张量，共 34,996,224 参数，并把每层 q/k/v 融成 `qkv`。其余张量与 SFT 同源。SFT 和 clip7 的逐张量 SQNR 只有 15.65–23.08 dB，微调幅度集中在这三个输出层。
 
@@ -97,24 +97,39 @@ KEX 相对 MOSS-Image-SFT 只改尾部：替换 `layers.41.proj.o`、`layers.41.
 
 ## 权重
 
-| 文件 | 格式 | 大小 | SHA256 |
-|---|---|---:|---|
-| `MI-DIT-Prism-KedaiEX1_ki8_15peak8.safetensors` | KI8 1.5.0-rc3 Peak8/W32，W8A16 | 5,241,596,371 B | `7064ed51…e572` |
+| Release | 模型与格式 | 字节 / SHA256 |
+|---|---|---|
+| [KI8 1.6.0-rc1](https://github.com/Sata1949/MI-Prism-KedaiEX/releases/tag/kex-weights-v1.6rc1) | **原版 SFT**，`universal-a16`，W8A16；归档 `ki8-16-universal-a16.tar` | 5,241,210,880 B；`e05c1845234dce27387da672e2ee69bb3533422c15450074ca5d1873f33019de` |
+| [KI8 1.5.0-rc3（上一版）](https://github.com/Sata1949/MI-Prism-KedaiEX/releases/tag/kex-weights-v1.5rc3) | **KEX clip7**，Peak8/W32，W8A16；`MI-DIT-Prism-KedaiEX1_ki8_15peak8.safetensors` | 5,241,596,371 B；`7064ed51dc966d4c01d7c0d1c16c0e242cc01217955040c116659164c4c3e572` |
 
-Release `kex-weights-v1.5rc3` 里按 128 MiB 切成 40 片，单片小于 2 GiB。仓库是私有的，下载需要 `GITHUB_TOKEN`（repo 权限）：
+1.6 只量化 [OpenMOSS-Team/MOSS-Image-SFT @ f972bd4](https://huggingface.co/OpenMOSS-Team/MOSS-Image-SFT/tree/f972bd4b4b9e3852133cc5da954d87bc32cd8fb9) 主干。`moss_image_sft_bf16.safetensors` 与打包用的 Diffusers 快照全部 463 个张量逐字节相同。包中不含 VAE 和外部文本编码器，打包也不需要 `text_encoder`。
+
+`inspect`：清单 `1.6.0-rc1`；42 个 DiT 块 × 六个投影，另有 17 个主干线性模块。269/269 个模块的形状与 BF16 源指纹均已核对，本次候选选择全部为 `peak8 / bf16`。269 个逐层文件共 538 个张量；含清单目录共 **5,240,913,874 B**。清单 SHA256：`750e03e15480bac7fcdcd6c49ca9571e17f9aeed4d4652d9bf225a6e9a69a15b`。
+
+在新的空目录下载 1.6 的 40 个分片（前 39 片各 128 MiB）。私仓先用 `gh auth login` 登录：
 
 ```bash
-BASE=https://github.com/Sata1949/MI-Prism-KedaiEX/releases/download/kex-weights-v1.5rc3
-for i in $(seq 0 39); do
-  n=$(printf "%03d" "$i")
-  curl -L --fail -H "Authorization: token $GITHUB_TOKEN" \
-    -O "$BASE/MI-DIT-Prism-KedaiEX1_ki8_15peak8.safetensors.part$n"
-done
-cat MI-DIT-Prism-KedaiEX1_ki8_15peak8.safetensors.part* > MI-DIT-Prism-KedaiEX1_ki8_15peak8.safetensors
-sha256sum MI-DIT-Prism-KedaiEX1_ki8_15peak8.safetensors
+set -euo pipefail
+export LC_ALL=C
+a=ki8-16-universal-a16.tar
+gh release download kex-weights-v1.6rc1 --repo Sata1949/MI-Prism-KedaiEX -p "$a.part*" -p SHA256SUMS
+cat "$a".part[0-9][0-9][0-9] > "$a"
+sha256sum -c SHA256SUMS
+tar -xf "$a"
+sha256sum -c KI8-FILES.sha256
 ```
 
-逐片哈希和 `gh release download` 的写法在 [docs/weights.md](docs/weights.md)。KEX BF16 基线 10.16 GB，不随 Release 分发。
+KI8 1.6 可用 `ki8_lora.install(dit, packed_dir)` 装入原 SFT DiT。**`UNETLoader` 不直接读取这个目录**：需要先补回 SFT 的 norm、bias 等原张量，把码流写成支持 KI8 的 ComfyUI 单文件，放进 `ComfyUI/models/diffusion_models/`。[下载循环、单文件转换命令与 1.5 对照](docs/weights.md)。下文样张、速度和 PSNR 来自 **KEX 1.5**，不是 SFT 1.6 的测试结果。
+
+**2026-11-26 本地清理**（未改动旧 Release）。仅删除三个 KI8 1.4 文件：
+
+| 文件 | 文件字节 | 删除时 D 盘可用空间实增 |
+|---|---:|---:|
+| `moss_image_sft_ki8_14_fused.safetensors` | 5,561,121,456 | 5,561,122,816 B |
+| `moss_image_sft_ki8_14_bf16src.safetensors` | 5,561,128,932 | 5,561,131,008 B |
+| `MI-DIT-Prism-KedaiEX1_ki8_14e2m5.safetensors` | 5,241,594,794 | 5,241,593,856 B |
+
+删除前后 `df -h /d` 可用空间由 **35G → 50G**（88% → 83%），实增 **16,363,847,680 B**。两个 BF16 文件、1.5 A16 参照、small VAE、训练目录和仓库均保留；本机实测 SFT 与 clip7 BF16 **不是同一 inode**。文档内的盘符、`/content` 等均为**示例路径**，使用时替换为自己的目录。
 
 ---
 
@@ -130,7 +145,7 @@ python install_moss.py --comfy <COMFYUI_DIR> --yes
 
 跑完会打印图片路径。工作流本身已经实测：RTX 3070 Ti Laptop 8 GB，1024×1024、12 步、cfg 2.5，从排队到出图 **60–77 s**（原生 W32 解码），输出 `output/moss27b/e2e24576-ki815_00001_.png`。
 
-### ComfyUI 手动
+### ComfyUI 手动（KEX 1.5 对照）
 
 1. 安装 KI8 1.5.0-rc3 运行时和 ComfyUI 编解码/节点。运行时补丁在 [patches/ki8-1.5.0-rc3-cuda.patch](patches/ki8-1.5.0-rc3-cuda.patch)。
 2. 把 `MI-DIT-Prism-KedaiEX1_ki8_15peak8.safetensors` 放进 `ComfyUI/models/diffusion_models/`。
@@ -245,7 +260,7 @@ KEX 1.5 的两个码流差 0.0375 LPIPS-Alex，原生 SFT 和 KEX 差 0.24。构
 - PSNR 和 LPIPS 来自单种子、单图，只作相对参考。
 - 8 GB 卡上 TE 和 DiT 不能共存，必须两阶段。
 - BF16 基线不随 Release 分发。复现 43.34 dB 需要自备 `moss_image_clip7_bf16.safetensors`。
-- 私仓 Release 需要 token 才能下载。
+- 仓库为私有时，Release 需要有读取权限的 `gh` 登录；公开后分片链接可匿名下载。
 
 ---
 
