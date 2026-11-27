@@ -1,4 +1,47 @@
-# DiT 权重：SFT 1.6 与 KEX 1.5
+# DiT 权重：SFT 4-Layer BF16、SFT 1.6 与 KEX 1.5
+
+## SFT 4-Layer DiT（layers 22 / 26 / 35 / 41，step 2000）· BF16
+
+[分片与校验清单](https://github.com/Sata1949/MI-Prism-KedaiEX/releases/tag/sft-4layers-22-26-35-41-bf16)
+
+基于 `OpenMOSS-Team/MOSS-Image-SFT` 在 H200 上对第 22、26、35、41 四层微调至 step 2000 导出的完整 BF16 DiT 单文件权重（不含 VAE 与外部文本编码器）。
+
+| 文件 | 格式 | 字节 | SHA256 |
+|---|---|---:|---|
+| `sft_dit_4layers_22_26_35_41_h200-merged.safetensors` | BF16 单文件（1 GiB × 9 + 478 MiB，共 10 片） | 10,164,664,320 | `8f55dcec2aed68a8d6c9122a4b2d0fd66d0831c1daad0ebcf018c90846843d9e` |
+
+### 下载、重组与校验
+
+在新的空目录执行（私仓需先 `gh auth login`）：
+
+```bash
+set -euo pipefail
+export LC_ALL=C
+mkdir sft-4layers-bf16 && cd sft-4layers-bf16
+repo=Sata1949/MI-Prism-KedaiEX
+tag=sft-4layers-22-26-35-41-bf16
+file=sft_dit_4layers_22_26_35_41_h200-merged.safetensors
+gh release download "$tag" --repo "$repo" -p "$file.part*" -p SHA256SUMS
+cat "$file".part[0-9][0-9][0-9] > "$file"
+sha256sum -c SHA256SUMS
+```
+
+公开后也可用 `curl` 循环下载 `.part000`–`.part009`：
+
+```bash
+base="https://github.com/$repo/releases/download/$tag"
+curl -fLsS --retry 5 -O "$base/SHA256SUMS"
+for i in $(seq 0 9); do
+  n=$(printf '%03d' "$i")
+  curl -fLsS --retry 5 -O "$base/$file.part$n"
+done
+cat "$file".part[0-9][0-9][0-9] > "$file"
+sha256sum -c SHA256SUMS
+```
+
+权重按 Apache-2.0 分发，Release 附带 `LICENSE-APACHE-2.0` 与 `NOTICE`。
+
+---
 
 ## KI8 1.6.0-rc1 · MOSS-Image-SFT · universal-a16
 

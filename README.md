@@ -6,6 +6,7 @@
 
 SFT 主干 · KI8 1.6.0-rc1 W8A16 · KEX 1.5 对照
 
+[4-Layer SFT BF16 Release](https://github.com/Sata1949/MI-Prism-KedaiEX/releases/tag/sft-4layers-22-26-35-41-bf16) ·
 [SFT 1.6 Release](https://github.com/Sata1949/MI-Prism-KedaiEX/releases/tag/kex-weights-v1.6rc1) ·
 [Weights](docs/weights.md) ·
 [License](LICENSING-LAYERS.md) ·
@@ -99,8 +100,20 @@ KEX 相对 MOSS-Image-SFT 只改尾部：替换 `layers.41.proj.o`、`layers.41.
 
 | Release | 模型与格式 | 字节 / SHA256 |
 |---|---|---|
+| [SFT 4-Layer BF16](https://github.com/Sata1949/MI-Prism-KedaiEX/releases/tag/sft-4layers-22-26-35-41-bf16) | **SFT 4 层微调（22/26/35/41，step 2000）**，BF16；`sft_dit_4layers_22_26_35_41_h200-merged.safetensors`（1 GiB × 10 分片） | 10,164,664,320 B；`8f55dcec2aed68a8d6c9122a4b2d0fd66d0831c1daad0ebcf018c90846843d9e` |
 | [KI8 1.6.0-rc1](https://github.com/Sata1949/MI-Prism-KedaiEX/releases/tag/kex-weights-v1.6rc1) | **原版 SFT**，`universal-a16`，W8A16；归档 `ki8-16-universal-a16.tar` | 5,241,210,880 B；`e05c1845234dce27387da672e2ee69bb3533422c15450074ca5d1873f33019de` |
 | [KI8 1.5.0-rc3（上一版）](https://github.com/Sata1949/MI-Prism-KedaiEX/releases/tag/kex-weights-v1.5rc3) | **KEX clip7**，Peak8/W32，W8A16；`MI-DIT-Prism-KedaiEX1_ki8_15peak8.safetensors` | 5,241,596,371 B；`7064ed51dc966d4c01d7c0d1c16c0e242cc01217955040c116659164c4c3e572` |
+
+下载 **SFT 4-Layer BF16**（10 个分片，前 9 片各 1 GiB，末片 478 MiB）并校验重组：
+
+```bash
+set -euo pipefail
+export LC_ALL=C
+f=sft_dit_4layers_22_26_35_41_h200-merged.safetensors
+gh release download sft-4layers-22-26-35-41-bf16 --repo Sata1949/MI-Prism-KedaiEX -p "$f.part*" -p SHA256SUMS
+cat "$f".part[0-9][0-9][0-9] > "$f"
+sha256sum -c SHA256SUMS
+```
 
 1.6 只量化 [OpenMOSS-Team/MOSS-Image-SFT @ f972bd4](https://huggingface.co/OpenMOSS-Team/MOSS-Image-SFT/tree/f972bd4b4b9e3852133cc5da954d87bc32cd8fb9) 主干。`moss_image_sft_bf16.safetensors` 与打包用的 Diffusers 快照全部 463 个张量逐字节相同。包中不含 VAE 和外部文本编码器，打包也不需要 `text_encoder`。
 
